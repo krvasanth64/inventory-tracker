@@ -13,7 +13,7 @@ function uomOptions(db,table,row){
  return [...new Set([item?.baseUom,...db.UOM_MAP.filter(x=>x.sku===sku&&x.active!=='No').map(x=>x.uom)].filter(Boolean))];
 }
 function options(db,field,row,table){
- if(field.key==='uom')return uomOptions(db,table,row).map(x=>({id:x,label:x}));
+ if(field.key==='uom'&&table!=='UOM_MAP')return uomOptions(db,table,row).map(x=>({id:x,label:x}));
  if(field.type==='ref')return db[field.ref].map(x=>({id:x[SCHEMAS[field.ref].pk],label:(x.name||x.number||x.sku||x.id)+' · '+x[SCHEMAS[field.ref].pk]}));
  if(field.type==='select')return (field.options||[]).map(x=>({id:x,label:x}));
  return null;
