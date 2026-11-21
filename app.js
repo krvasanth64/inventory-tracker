@@ -189,7 +189,7 @@ async function saveEditor(e){
    if(['BUYER_PO','SUPPLIER_PO'].includes(editingTable)&&!editorLines.length)throw Error('Add at least one order item before saving');
    for(const line of editorLines){if(child==='UOM_MAP')line.id=editorHeader.sku+'|'+line.uom}
    plan=prepareDocument(db,editingTable,editorHeader,editorLines,editorRemoved);
-  }else plan=prepareEntries(db,editingTable,editorLines);
+  }else plan=prepareEntries(db,editingTable,editorLines,editorRemoved);
   pending=true;const name=editingTable,id=editorHeader?.[SCHEMAS[name].pk]||'Multiple rows';
   await commitPlan(plan,name+' '+id);
   closeModal();notify('Saved document and all item rows');render();
