@@ -9,13 +9,14 @@ const groupOptions=()=>[...Object.keys(importGroups),...TABLES].map(t=>'<option 
 let bridge=null;
 let lastBulk=null;
 let preview=null;
+let previewContext=null;
 let group='masters';
 let mode='skip';
 let userEditing='';
 function msg(x,error=false){bridge?.notify(x,error)}
 function canWrite(t,bulk=false){if(connected()&&!isAdmin())return false;return may(bulk?'bulk':'write',t)}
 export {canWrite};
-export function chooseBulkTable(t){if(!SCHEMAS[t])throw Error('Unknown module');group=t;preview=null;lastBulk=null}
+export function chooseBulkTable(t){if(!SCHEMAS[t])throw Error('Unknown module');group=t;preview=null;lastBulk=null;previewContext=null}
 export function accessible(p){if(!currentUser())return false;if(p==='users'||p==='databases')return isAdmin();if(p==='bulk')return TABLES.some(t=>canWrite(t,true));return may('read')}
 export function initializeAdminBridge(impl){bridge=impl;setupEvents();return initializeAccounts().then(()=>{paintAuth();refreshIdentity()})}
 function refreshIdentity(){
@@ -79,10 +80,12 @@ async function handleAdminAction(action){
  if(action==='workspace-import'){if(!isAdmin())return msg('Administrator only',true);document.getElementById('workspace-import-input')?.click();return}
  if(action==='bulk-template'){downloadTableTemplate(group);return}
  if(action==='bulk-file'){document.getElementById('bulk-upload-input')?.click();return}
- if(action==='bulk-clear'){preview=null;lastBulk=null;bridge.render();return}
+ if(action==='bulk-clear'){preview=null;lastBulk=null;previewContext=null;bridge.render();return}
  if(action==='bulk-commit'){
   if(!preview?.canApply)return msg('Resolve preview errors before upload.',true);
   if(!lastBulk)return msg('No upload source is loaded.',true);
+  const workspace=await activeWorkspaceInfo();
+  if(!previewContext||previewContext.id!==workspace?.id||previewContext.data!==JSON.stringify(bridge.db()))return msg('Database changed since preview. Select your file and preview again.',true);
   const changes=preview.results.filter(x=>['CREATE','UPDATE','FINALIZE'].includes(x.status));
   if(!changes.length)return msg('Nothing to upload.',true);
   if(!confirm('Write '+changes.length+' validated actions to '+(connected()?'the Google Sheet':'the local database')+'?'))return;
@@ -94,7 +97,7 @@ async function handleAdminAction(action){
     await appendAudit('BULK IMPORT','ALL',lastBulk?.source||'BULK',changes.length+' validated operations');
     bridge.setDb(temp);await updateWorkspaceMeta({count:Object.values(temp).reduce((a,x)=>a+x.length,0)});
    }else{await saveLocal(preview.draft);bridge.setDb(preview.draft)}
-   msg('Bulk upload completed: '+(preview.counts.create+preview.counts.update)+' source records');preview=null;lastBulk=null;bridge.render();
+   msg('Bulk upload completed: '+(preview.counts.create+preview.counts.update)+' source records');preview=null;lastBulk=null;previewContext=null;bridge.render();
   }catch(e){msg('Bulk upload interrupted: '+e.message+' Refresh before retrying. Cloud uploads may be partial.',true);await bridge.refresh().catch(()=>{});}
   finally{bridge.setPending(false)}
   return;
@@ -120,8 +123,8 @@ function setupEvents(){
  },true);
  document.addEventListener('change',async e=>{
   if(e.target.id==='active-db-quick'){await handleAdminAction('workspace-select:'+e.target.value).catch(err=>msg(err.message,true));return}
-  if(e.target.id==='bulk-group'){group=e.target.value;preview=null;lastBulk=null;document.getElementById('bulk-selected').textContent=groupTitle[group]||SCHEMAS[group]?.title||group;return}
-  if(e.target.id==='bulk-mode'){mode=e.target.value;preview=null;lastBulk=null;document.getElementById('bulk-selected-mode').textContent=mode;return}
+  if(e.target.id==='bulk-group'){group=e.target.value;preview=null;lastBulk=null;previewContext=null;document.getElementById('bulk-selected').textContent=groupTitle[group]||SCHEMAS[group]?.title||group;document.getElementById('bulk-preview').innerHTML='<div class="panel-body">Select a new file to preview.</div>';return}
+  if(e.target.id==='bulk-mode'){mode=e.target.value;preview=null;lastBulk=null;previewContext=null;document.getElementById('bulk-selected-mode').textContent=mode;document.getElementById('bulk-preview').innerHTML='<div class="panel-body">Select a new file to preview.</div>';return}
   if(e.target.id==='workspace-import-input'){
    const file=e.target.files?.[0];if(!file)return;
    try{const data=await importExcel(file);const n=Object.values(data).reduce((sum,arr)=>sum+arr.length,0);if(!n)throw Error('No known source table records found in the file');
@@ -134,6 +137,7 @@ function setupEvents(){
   if(e.target.id==='bulk-upload-input'){
    const file=e.target.files?.[0];if(!file)return;
    try{lastBulk=await parseBulkFile(file,group);
+    const workspace=await activeWorkspaceInfo();previewContext={id:workspace?.id,data:JSON.stringify(bridge.db())};
     preview=previewBulk(lastBulk,bridge.db(),{mode,allowedTable:t=>canWrite(t,true),allowedRecord:(t,r)=>{const post=(['RECEIPTS','ADJUSTMENTS'].includes(t)&&r.posting==='Posted')||(t==='CONTAINERS'&&['Dispatched','Arrived'].includes(r.status));return !post||may('post',t)}});
     document.getElementById('bulk-preview').innerHTML=previewHtml(preview);
     msg('Preview ready: '+preview.results.length+' rows');
