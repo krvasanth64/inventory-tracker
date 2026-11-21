@@ -65,7 +65,7 @@ export function renderOrderDesk(db,state={}){
  });
  const cards='<div class="kpis workflow-kpis">'+stat('Active Buyer Orders',new Set(active.map(l=>l.po)).size,'Orders with outstanding items')+stat('Outstanding Items',active.length,'PO lines, mixed UOM')+stat('Partially Sent',active.filter(x=>x.shipped>0).length,'Order lines')+stat('Overdue Items',active.filter(x=>x.due&&new Date(x.due)<new Date()).length,'Past required date')+'</div>';
  const buyers=byBuyer.slice(0,8).map(x=>'<div class="buyer-snapshot"><div><strong>'+buyer(db,x.buyer)+'</strong><div class="footnote">'+x.orders.size+' orders · '+x.lines+' open item lines</div></div><div>'+tag(x.late?x.late+' overdue':x.unreserved+' need stock')+'</div></div>').join('');
- return intro('Buyer Orders','Create one Buyer PO, add its items and track every partial dispatch. Quantities stay in each item’s own UOM.',button('+ New Buyer Order','new:BUYER_PO',true)+button('Add PO Item','new:BUYER_LINES')+button('Outstanding','go:requirements'))+cards+
+ return intro('Buyer Orders','Create one Buyer PO, add its items and track every partial dispatch. Quantities stay in each item’s own UOM.',button('+ New Buyer Order','new:BUYER_PO',true)+button('Outstanding','go:requirements'))+cards+
  '<div class="flow-filterbar">'+buyerSelector(db,selected)+searchBar(state.search||'')+'</div>'+
  panel('Buyer order register','Select View Items to see item-wise ordered, dispatched and pending balances',table(['Buyer PO','Buyer','PO Date','Required Date','Items','Open','Status','Actions'],rows,'No orders match the selected Buyer'),button('Buyer PO Lines','go:BUYER_LINES'))+
  panel('Buyer-wise follow-up','Buyers with open orders, highest overdue priority first','<div class="panel-body">'+(buyers||'<p class="muted">No outstanding Buyer orders.</p>')+'</div>');
@@ -74,10 +74,10 @@ export function renderOrderDetail(db,id){
  const {s}=workflows(db),po=byId(db,'BUYER_PO',id);if(!po)return '<div class="notice warning">Buyer order not found.</div>';
  const lines=s.buyerLines.filter(l=>l.po===id),rows=lines.map(l=>{
   const poUom=l.uom;const orderQty=Number(l.qty||0);
-  return '<tr>'+td('<strong>'+h(l.sku)+'</strong><div class="footnote">'+item(db,l.sku)+'</div>')+td(h(poUom))+td(n(orderQty,2),'num')+td(n(l.shipped,2)+' '+uom(db,l.sku),'num')+td('<strong>'+n(l.outstanding,2)+' '+uom(db,l.sku)+'</strong>','num')+td(n(l.reserved,2)+' '+uom(db,l.sku),'num')+td(tag(l.status))+td(button('Edit Item','edit:BUYER_LINES:'+encodeURIComponent(l.id)))+'</tr>';
+  return '<tr>'+td('<strong>'+h(l.sku)+'</strong><div class="footnote">'+item(db,l.sku)+'</div>')+td(h(poUom))+td(n(orderQty,2),'num')+td(n(l.shipped,2)+' '+uom(db,l.sku),'num')+td('<strong>'+n(l.outstanding,2)+' '+uom(db,l.sku)+'</strong>','num')+td(n(l.reserved,2)+' '+uom(db,l.sku),'num')+td(tag(l.status))+td(button('Edit Order','edit:BUYER_PO:'+encodeURIComponent(id)))+'</tr>';
  });
  const caption='<div class="notice">Ordered quantity uses the PO UOM. Sent, pending and reserved quantities are shown in the SKU base UOM. This prevents confusing cartons with pieces or KG with PCS.</div>';
- return '<div class="flow-back">'+button('← Back to Buyer Orders','go:orders')+'</div>'+intro(h(po.number||po.id),buyer(db,po.buyer)+' · PO '+h(po.id)+' · required '+date(po.due),button('+ Add Another Item','new-po-line:'+encodeURIComponent(po.id),true)+button('Edit Order','edit:BUYER_PO:'+encodeURIComponent(po.id)))+caption+panel('Items & outstanding',lines.length+' items in this Buyer order',table(['Item','Order UOM','Ordered','Dispatched','Outstanding','Reserved','Status','Action'],rows,'No items added yet'));
+ return '<div class="flow-back">'+button('← Back to Buyer Orders','go:orders')+'</div>'+intro(h(po.number||po.id),buyer(db,po.buyer)+' · PO '+h(po.id)+' · required '+date(po.due),button('Edit Order and Items','edit:BUYER_PO:'+encodeURIComponent(po.id),true))+caption+panel('Items & outstanding',lines.length+' items in this Buyer order',table(['Item','Order UOM','Ordered','Dispatched','Outstanding','Reserved','Status','Action'],rows,'No items added yet'));
 }
 export function renderRequirements(db,state={}){
  const lines=filterBuyer(buildRequirements(db),state.buyer||'',state.search||''),s=summarize(db),selected=state.buyer||'';
@@ -116,7 +116,7 @@ export function renderOutward(db,state={}){
   const factor=l?(baseQty(db,l.sku,a.uom,a.qty)||0):0;
   return '<tr>'+td(h(a.id))+td(l?buyer(db,l.buyer):'—')+td(h(l?.po||''))+td(h(l?.sku||''))+td(n(factor,2)+' '+uom(db,l?.sku),'num')+td(n(Math.max(0,factor-reserved),2)+' '+uom(db,l?.sku),'num')+td(button('Load Item','new-loading-reservation:'+encodeURIComponent(a.id)))+'</tr>';
  });
- return intro('Stock Out & Dispatch','Reserve by Buyer PO, enter manual container loading, then confirm dispatch. Planning does not reduce stock.',button('+ Plan Container','new:CONTAINERS',true)+button('Add Loading Item','new:DISPATCH')+button('Reserve Stock','new:ALLOCATIONS'))+
+ return intro('Stock Out & Dispatch','Reserve by Buyer PO, enter manual container loading, then confirm dispatch. Planning does not reduce stock.',button('+ Plan Container and Items','new:CONTAINERS',true)+button('Reserve Stock','new:ALLOCATIONS'))+
  '<div class="kpis workflow-kpis">'+stat('Containers to Send',planned.length,'Planning or loaded')+stat('Sent Containers',sent.length,'Confirmed dispatch / arrived')+stat('Open Reservations',db.ALLOCATIONS.filter(a=>a.control!=='Released').length,'Including partly shipped')+stat('Buyer Items Pending',open.length,'Still outstanding')+'</div>'+
  '<div class="flow-step-list big"><div><b>1</b> Reserve the Buyer item</div><div><b>2</b> Create container</div><div><b>3</b> Add loading lines</div><div><b>4</b> Change status to Dispatched</div></div>'+
  panel('Container Register','20FT / 40FT / 40HC: manual loading quantities only',table(['Shipment / Container','Buyer','Type','Loaded Lines','ETD','Status','Action'],rows,'No containers recorded'))+
@@ -125,11 +125,11 @@ export function renderOutward(db,state={}){
 export function renderLoading(db,id){
  const shipment=byId(db,'CONTAINERS',id);if(!shipment)return '<div class="notice warning">Container not found.</div>';
  const s=summarize(db),rows=db.DISPATCH.filter(d=>d.shipment===id).map(d=>{
-  const x=s.deliveries.find(y=>y.id===d.id);return '<tr>'+td(h(d.id))+td(h(d.allocation))+td(x?buyer(db,x.buyer):'—')+td(h(x?.sku||''))+td(n(d.qty,2)+' '+h(d.uom),'num')+td(x?.posted?tag('Dispatched'):tag('Not yet dispatched'))+td(button('Edit Loading','edit:DISPATCH:'+encodeURIComponent(d.id)))+'</tr>';
+  const x=s.deliveries.find(y=>y.id===d.id);return '<tr>'+td(h(d.id))+td(h(d.allocation))+td(x?buyer(db,x.buyer):'—')+td(h(x?.sku||''))+td(n(d.qty,2)+' '+h(d.uom),'num')+td(x?.posted?tag('Dispatched'):tag('Not yet dispatched'))+td(button('Edit Container','edit:CONTAINERS:'+encodeURIComponent(id)))+'</tr>';
  });
  const edit= ['Planning','Loaded'].includes(shipment.status);
  return '<div class="flow-back">'+button('← Back to Stock Out','go:outward')+'</div>'+
- intro(h(shipment.id)+' · '+h(shipment.number||''),buyer(db,shipment.buyer)+' · '+h(shipment.type||'Manual container')+' · '+h(shipment.status||'Planning'),(edit?button('+ Add Loading Item','new-container-line:'+encodeURIComponent(id),true)+button('Confirm Dispatch','edit:CONTAINERS:'+encodeURIComponent(id)):'')+button('Container Details','edit:CONTAINERS:'+encodeURIComponent(id)))+
+ intro(h(shipment.id)+' · '+h(shipment.number||''),buyer(db,shipment.buyer)+' · '+h(shipment.type||'Manual container')+' · '+h(shipment.status||'Planning'),(edit?button('Edit Container and Loading','edit:CONTAINERS:'+encodeURIComponent(id),true):'')+button('Container Details','edit:CONTAINERS:'+encodeURIComponent(id)))+
  '<div class="notice">Goods are deducted from stock and Buyer outstanding only after container status is Dispatched. Do not use Loaded as a shipping confirmation.</div>'+
  panel('Loading Items',rows.length+' item lines',table(['Dispatch Line','Allocation','Buyer','SKU','Loaded Qty','Status','Action'],rows));
 }
