@@ -21,6 +21,9 @@ jobs:
           node --check workflow-ui.js
           node --check operations.js
           node --check forms-ui.js
+          node --check lan.js
+          node --check server.mjs
+          node --check service-worker.js
           node --check app.js
       - name: Transaction tests
         run: npm test
