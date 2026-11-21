@@ -1,6 +1,6 @@
 import {SCHEMAS,TABLES,emptyDb,byId} from './core.js';
 import {ROLE_DEFINITIONS,MASTER_TABLES,initializeAccounts,currentUser,authenticate,changeOwnPassword,logout,isAdmin,may,listUsers,upsertUser,removeUser,roleLabels} from './admin.js';
-import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,loadLocal,saveLocal,importExcel,updateWorkspaceMeta,putSheet,appendAudit,unlinkExcel} from './storage.js';
+import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,restoreLocalWorkspace,loadLocal,saveLocal,importExcel,updateWorkspaceMeta,putSheet,appendAudit,unlinkExcel} from './storage.js';
 import {downloadTableTemplate,parseBulkFile,previewBulk,importGroups,groupTitle,importOrder} from './bulk.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
 const date=v=>v?new Date(v).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
@@ -69,7 +69,7 @@ export async function refreshAdminPage(page){
  if(page==='bulk'){const select=document.getElementById('bulk-group'),m=document.getElementById('bulk-mode');if(select)select.value=group;if(m)m.value=mode}
 }
 async function handleAdminAction(action){
- if(action==='logout'){logout();paintAuth();refreshIdentity();bridge.render();return}
+ if(action==='logout'){const local=await restoreLocalWorkspace();bridge.setDb(local);logout();paintAuth();refreshIdentity();bridge.render();return}
  if(action==='workspace-import'){if(!isAdmin())return msg('Administrator only',true);document.getElementById('workspace-import-input')?.click();return}
  if(action==='bulk-template'){downloadTableTemplate(group);return}
  if(action==='bulk-file'){document.getElementById('bulk-upload-input')?.click();return}
