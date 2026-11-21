@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="Buyer PO, stock, purchasing and export operations">
+  <title>FlowStock | Trading Operations</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script defer src="https://accounts.google.com/gsi/client"></script>
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside id="sidebar" class="sidebar">
+      <div class="brand"><span class="brand-mark">F</span><span><strong>FlowStock</strong><small>Trading operations</small></span></div>
+      <div class="workspace-label">WORKSPACE</div>
+      <nav id="navigation" aria-label="Main navigation">
+        <button class="nav-item active" data-page="dashboard"><span class="nav-icon">▦</span>Overview</button>
+        <button class="nav-item" data-page="outstanding"><span class="nav-icon">▤</span>PO Outstanding</button>
+        <button class="nav-item" data-page="stock"><span class="nav-icon">▥</span>Stock Availability</button>
+        <div class="nav-heading">OPERATIONS</div>
+        <button class="nav-item" data-page="BUYER_PO"><span class="nav-icon">▣</span>Buyer Orders</button>
+        <button class="nav-item" data-page="SUPPLIER_PO"><span class="nav-icon">▧</span>Supplier Purchases</button>
+        <button class="nav-item" data-page="RECEIPTS"><span class="nav-icon">↓</span>Goods Receipts</button>
+        <button class="nav-item" data-page="ALLOCATIONS"><span class="nav-icon">≡</span>Reservations</button>
+        <button class="nav-item" data-page="CONTAINERS"><span class="nav-icon">▥</span>Containers</button>
+        <button class="nav-item" data-page="DISPATCH"><span class="nav-icon">↗</span>Dispatch Lines</button>
+        <button class="nav-item" data-page="ADJUSTMENTS"><span class="nav-icon">±</span>Stock Adjustments</button>
+        <div class="nav-heading">DIRECTORIES</div>
+        <button class="nav-item" data-page="ITEMS"><span class="nav-icon">◈</span>Items</button>
+        <button class="nav-item" data-page="UOM_MAP"><span class="nav-icon">↔</span>UOM Conversion</button>
+        <button class="nav-item" data-page="BUYERS"><span class="nav-icon">◉</span>Buyers</button>
+        <button class="nav-item" data-page="SUPPLIERS"><span class="nav-icon">◇</span>Suppliers</button>
+        <button class="nav-item" data-page="WAREHOUSES"><span class="nav-icon">⌂</span>Warehouses</button>
+        <div class="nav-heading">ADMINISTRATION</div>
+        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span>Database & Settings</button>
+        <button class="nav-item" data-page="checks"><span class="nav-icon">✓</span>Data Checks</button>
+      </nav>
+      <div class="sidebar-footer"><span class="status-dot"></span><span id="sidebar-mode">Local workspace</span><span class="version">V1.2</span></div>
+    </aside>
+    <div id="shade" class="shade"></div>
+    <div class="main">
+      <header class="topbar">
+        <div class="top-left"><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Menu">☰</button><div class="breadcrumbs">Operations <span>/</span> <b id="crumb">Overview</b></div></div>
+        <div class="top-actions">
+          <span id="connection" class="connection"><span class="status-dot"></span>Local database</span>
+          <button class="btn btn-ghost" id="refresh">↻ <span>Refresh</span></button>
+          <button class="btn btn-primary" id="quick-add">+ New entry</button>
+        </div>
+      </header>
+      <main class="content">
+        <section class="page-head"><div><div class="eyebrow" id="eyebrow">CONTROL CENTER</div><h1 id="page-title">Operations overview</h1><p id="page-description">Buyer orders, inventory and shipments in one workspace.</p></div><div class="header-controls" id="page-actions"></div></section>
+        <section id="app-content" aria-live="polite"></section>
+      </main>
+    </div>
+  </div>
+  <div class="toast-region" id="toasts" aria-live="polite"></div>
+  <div class="modal-backdrop hidden" id="modal-backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-top"><div><span class="eyebrow" id="modal-subtitle">DATA ENTRY</span><h2 id="modal-title">New record</h2></div><button class="icon-button" id="close-modal" aria-label="Close">✕</button></div>
+      <form id="record-form"><div id="form-fields" class="form-grid"></div><div class="modal-actions"><button class="btn btn-ghost" type="button" id="cancel-modal">Cancel</button><button class="btn btn-primary" type="submit" id="save-record">Save record</button></div></form>
+    </div>
+  </div>
+  <input type="file" id="import-file" accept=".xlsx,.xls,.ods" hidden>
+</body>
+</html>
