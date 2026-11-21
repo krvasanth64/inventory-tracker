@@ -101,9 +101,10 @@ export function prepareDocument(db,table,header,lines=[],removed=[]){
  if(violations.length)throw Error('Document check failed: '+violations.slice(0,3).map(x=>x.title).join(', '));
  return {next,operations};
 }
-export function prepareEntries(db,table,entries=[]){
+export function prepareEntries(db,table,entries=[],removed=[]){
  if(!ENTRY_BATCH.has(table))throw Error('Not a grouped entry table');
  const next=copy(db),operations=[];
+ for(const id of removed)stageDelete(next,table,id,operations);
  for(const r of entries){
   if(!String(r[SCHEMAS[table].pk]||'').trim())continue;
   stageUpsert(next,table,r,operations);
