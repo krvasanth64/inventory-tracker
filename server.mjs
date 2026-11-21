@@ -18,14 +18,14 @@ const port=Number(process.env.FLOWSTOCK_PORT||5173),host=process.env.FLOWSTOCK_H
 const allowed=new Set(['index.html','styles.css','app.js','core.js','storage.js','admin.js','admin-ui.js','bulk.js','operations.js','forms-ui.js','workflow-ui.js','lan.js','favicon.ico']);
 const roleNames=new Set(['VIEWER','ENTRY','MANAGER','POSTER','ADMIN']);
 const masterTables=new Set(['BUYERS','SUPPLIERS','WAREHOUSES','ITEMS','UOM_MAP']);
-const sessions=new Map();let lease=null,state,users,meta;let queue=Promise.resolve();
+const sessions=new Map(),loginAttempts=new Map();let lease=null,state,users,meta;let queue=Promise.resolve();
 const now=()=>new Date().toISOString(),clone=o=>structuredClone(o),uid=()=>randomBytes(24).toString('hex');
 const count=db=>TABLES.reduce((a,t)=>a+db[t].length,0);
 const error=(status,message)=>Object.assign(new Error(message),{status});
 const locked=fn=>{const p=queue.then(fn);queue=p.catch(()=>{});return p};
 function publicUser(u){return {username:u.username,displayName:u.displayName,roles:u.roles,active:u.active,mustChangePassword:u.mustChangePassword,createdAt:u.createdAt,updatedAt:u.updatedAt}}
 async function hashed(pass,salt){const key=await scrypt(pass,Buffer.from(salt,'hex'),64,{N:16384,r:8,p:1});return key.toString('hex')}
-async function setPassword(u,password){if(typeof password!=='string'||password.length<10&&password!=='admin')throw error(400,'Password must be at least 10 characters');u.salt=randomBytes(16).toString('hex');u.hash=await hashed(password,u.salt);u.mustChangePassword=true;u.updatedAt=now()}
+async function setPassword(u,password,bootstrap=false){if(typeof password!=='string'||password.length<10&&!(bootstrap&&password==='admin'))throw error(400,'Password must be at least 10 characters');u.salt=randomBytes(16).toString('hex');u.hash=await hashed(password,u.salt);u.mustChangePassword=true;u.updatedAt=now()}
 async function passwordMatches(u,password){const hash=Buffer.from(await hashed(password,u.salt),'hex'),actual=Buffer.from(u.hash,'hex');return hash.length===actual.length&&timingSafeEqual(hash,actual)}
 async function atomic(file,value){const temp=file+'.'+process.pid+'.'+uid().slice(0,8)+'.tmp';try{await fs.writeFile(temp,JSON.stringify(value,null,2),'utf8');await fs.rename(temp,file)}finally{await fs.rm(temp,{force:true}).catch(()=>{})}}
 async function startup(){
@@ -34,7 +34,7 @@ async function startup(){
  state=await restore(dbPath,emptyDb());
  if(TABLES.some(t=>!Array.isArray(state[t])))throw Error('Invalid database schema at '+dbPath);
  users=await restore(usersPath,[]);
- if(!users.length){const admin={username:'admin',displayName:'System Administrator',roles:['ADMIN'],active:true,createdAt:now()};await setPassword(admin,'admin');users=[admin];await atomic(usersPath,users)}
+ if(!users.length){const admin={username:'admin',displayName:'System Administrator',roles:['ADMIN'],active:true,createdAt:now()};await setPassword(admin,'admin',true);users=[admin];await atomic(usersPath,users)}
  meta=await restore(metaPath,{name:'FlowStock Shared Database',createdAt:now(),updatedAt:now(),revision:0});
 }
 function clearStale(){const t=Date.now();for(const [id,s] of sessions){if(s.exp<t){sessions.delete(id);if(lease?.session===id)lease=null}}if(lease?.exp<t)lease=null}
@@ -123,8 +123,11 @@ function endpoints(){return Object.values(os.networkInterfaces()).flat().filter(
 async function handleApi(req,res,url){
  if(url.pathname==='/api/mode'&&req.method==='GET')return reply(res,200,{mode:'lan',version:'1.6.0'});
  if(url.pathname==='/api/login'&&req.method==='POST'){
-  const {username,password}=await body(req);const u=users.find(x=>x.username===String(username||'').toLowerCase()&&x.active);
-  if(!u||typeof password!=='string'||!(await passwordMatches(u,password)))throw error(401,'Incorrect username or password');
+  const {username,password}=await body(req),ip=String(req.socket.remoteAddress||'unknown');
+  const tries=loginAttempts.get(ip)||{count:0,until:0};if(tries.until>Date.now())throw error(429,'Too many login attempts; retry later');
+  const u=users.find(x=>x.username===String(username||'').toLowerCase()&&x.active);
+  if(!u||typeof password!=='string'||!(await passwordMatches(u,password))){tries.count++;tries.until=tries.count>=8?Date.now()+60000:0;loginAttempts.set(ip,tries);throw error(401,'Incorrect username or password')}
+  loginAttempts.delete(ip);
   const id=uid();sessions.set(id,{username:u.username,exp:Date.now()+12*3600*1000});
   return reply(res,200,{user:publicUser(u),lease:leasePublic({id})},{'Set-Cookie':'flowstock_sid='+id+'; HttpOnly; SameSite=Strict; Path=/'+(req.socket.encrypted?'; Secure':'')});
  }
