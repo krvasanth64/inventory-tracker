@@ -15,6 +15,7 @@ let userEditing='';
 function msg(x,error=false){bridge?.notify(x,error)}
 function canWrite(t,bulk=false){if(connected()&&!isAdmin())return false;return may(bulk?'bulk':'write',t)}
 export {canWrite};
+export function chooseBulkTable(t){if(!SCHEMAS[t])throw Error('Unknown module');group=t;preview=null;lastBulk=null}
 export function accessible(p){if(!currentUser())return false;if(p==='users'||p==='databases')return isAdmin();if(p==='bulk')return true;return may('read')}
 export function initializeAdminBridge(impl){bridge=impl;setupEvents();return initializeAccounts().then(()=>{paintAuth();refreshIdentity()})}
 function refreshIdentity(){
@@ -48,7 +49,7 @@ export function renderAdminPage(page){
 }
 function previewHtml(p){
  const {counts,results,source}=p;
- return '<section class="panel"><div class="panel-header"><div><h3>Bulk upload preview</h3><div class="panel-desc">'+esc(source)+'</div></div><div>'+btn('Clear preview','bulk-clear')+' '+btn('Confirm upload','bulk-commit','btn-primary')+'</div></div><div class="kpis compact">'+[['New',counts.create],['Update',counts.update],['Skip',counts.skip],['Errors',counts.error]].map(([n,x])=>'<div class="kpi"><div class="kpi-top">'+n+'</div><div class="kpi-number">'+x+'</div></div>').join('')+'</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Excel row</th><th>Module</th><th>Record ID</th><th>Action</th><th>Details</th></tr></thead><tbody>'+results.slice(0,250).map(x=>'<tr><td>'+esc(x.excelRow)+'</td><td>'+esc(x.table)+'</td><td>'+esc(x.record?.[SCHEMAS[x.table]?.pk]||'')+'</td><td><span class="tag '+(x.status==='ERROR'?'bad':x.status==='SKIP'?'warn':'good')+'">'+esc(x.status)+'</span></td><td>'+esc(x.error||'Validated')+'</td></tr>').join('')+'</tbody></table></div><div class="panel-body footnote">'+results.length+' rows checked; first 250 shown. '+(p.canApply?'Ready for review and upload.':'Fix errors before committing.')+'</div></section>';
+ return '<section class="panel"><div class="panel-header"><div><h3>Bulk upload preview</h3><div class="panel-desc">'+esc(source)+'</div></div><div>'+btn('Clear preview','bulk-clear')+' '+btn('Confirm upload','bulk-commit','btn-primary')+'</div></div><div class="kpis compact">'+[['New',counts.create],['Update',counts.update],['Finalized',counts.finalize],['Errors',counts.error]].map(([n,x])=>'<div class="kpi"><div class="kpi-top">'+n+'</div><div class="kpi-number">'+x+'</div></div>').join('')+'</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Excel row</th><th>Module</th><th>Record ID</th><th>Action</th><th>Details</th></tr></thead><tbody>'+results.slice(0,250).map(x=>'<tr><td>'+esc(x.excelRow)+'</td><td>'+esc(x.table)+'</td><td>'+esc(x.record?.[SCHEMAS[x.table]?.pk]||'')+'</td><td><span class="tag '+(x.status==='ERROR'?'bad':x.status==='SKIP'?'warn':'good')+'">'+esc(x.status)+'</span></td><td>'+esc(x.error||'Validated')+'</td></tr>').join('')+'</tbody></table></div><div class="panel-body footnote">'+results.length+' rows checked; first 250 shown. '+(p.canApply?'Ready for review and upload.':'Fix errors before committing.')+'</div></section>';
 }
 async function drawUsers(){
  const users=await listUsers(),container=document.getElementById('user-admin');if(!container)return;
@@ -76,13 +77,14 @@ async function handleAdminAction(action){
  if(action==='bulk-commit'){
   if(!preview?.canApply)return msg('Resolve preview errors before upload.',true);
   if(!lastBulk)return msg('No upload source is loaded.',true);
-  const changes=preview.results.filter(x=>['CREATE','UPDATE'].includes(x.status));
+  const changes=preview.results.filter(x=>['CREATE','UPDATE','FINALIZE'].includes(x.status));
   if(!changes.length)return msg('Nothing to upload.',true);
-  if(!confirm('Write '+changes.length+' validated records to '+(connected()?'the Google Sheet':'the local database')+'?'))return;
+  if(!confirm('Write '+changes.length+' validated actions to '+(connected()?'the Google Sheet':'the local database')+'?'))return;
   try{
    bridge.setPending(true);
    if(connected()){if(!isAdmin())throw Error('Google Sheets posting is restricted to admin until a trusted multi-user backend is installed');
-    let temp=structuredClone(bridge.db());let n=0;
+    const fresh=await connectSheet(googleId());if(JSON.stringify(fresh.db)!==JSON.stringify(bridge.db()))throw Error('Google Sheet changed since preview. Refresh and validate again.');
+    let temp=structuredClone(fresh.db);let n=0;
     for(const x of changes){const s=SCHEMAS[x.table];const old=byId(temp,x.table,x.record[s.pk]),written=await putSheet(x.table,x.record,temp,!!old);
       if(old)temp[x.table]=temp[x.table].map(r=>r[s.pk]===x.record[s.pk]?written:r);
       else temp[x.table].push(written);
@@ -91,7 +93,7 @@ async function handleAdminAction(action){
     await appendAudit('BULK IMPORT','ALL',lastBulk?.source||'BULK',n+' rows');
     bridge.setDb(temp);await updateWorkspaceMeta({count:Object.values(temp).reduce((a,x)=>a+x.length,0)});
    }else{await saveLocal(preview.draft);bridge.setDb(preview.draft)}
-   msg('Bulk upload completed: '+changes.length+' records');preview=null;lastBulk=null;bridge.render();
+   msg('Bulk upload completed: '+(preview.counts.create+preview.counts.update)+' source records');preview=null;lastBulk=null;bridge.render();
   }catch(e){msg('Bulk upload interrupted: '+e.message+' Refresh before retrying. Cloud uploads may be partial.',true);await bridge.refresh().catch(()=>{});}
   finally{bridge.setPending(false)}
   return;
