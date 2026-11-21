@@ -61,14 +61,20 @@ async function drawWorkspaces(){
  const all=await listWorkspaces(),mount=document.getElementById('workspace-admin');if(!mount)return;
  const active=await activeWorkspaceInfo();
  mount.innerHTML='<div class="notice warning">Workspace list and timestamps are saved in this browser. Google Sheets original creation/modified times are not available using the current Sheets-only OAuth scope. A Google connection requires re-authentication after reload.</div><div class="settings-grid"><section class="settings-card"><h3>Create database</h3><form id="workspace-form" class="login-form"><label>Database name<input name="name" maxlength="90" placeholder="e.g. Live Inventory 2027" required></label><label>Start with<select name="seed"><option value="blank">Blank database</option><option value="clone">Copy currently loaded data</option><option value="sample">Fresh demonstration dataset</option></select></label><button class="btn btn-primary" type="submit">Create database</button></form><hr><h3>Load a previous Excel file</h3><p>Import a workbook as a new, separate database. Your current workspace remains unchanged.</p><div class="settings-actions">'+btn('Choose Excel → New database','workspace-import','btn-primary')+'</div><input id="workspace-import-input" hidden type="file" accept=".xlsx,.xls,.ods"></section><section class="settings-card"><h3>Current database</h3><p><strong>'+esc(active?.name||'Unselected')+'</strong></p><p>Source: '+esc(active?.source||'Unknown')+'<br>Created: '+esc(date(active?.createdAt))+'<br>Last app update: '+esc(date(active?.updatedAt))+'<br>Records: '+esc(active?.count??0)+'</p></section></div><section class="panel"><div class="panel-header"><div><h3>Database connections</h3><div class="panel-desc">Select a local database or reconnect to a registered Google spreadsheet</div></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Source / Connection</th><th>Created (local)</th><th>Last updated (app)</th><th>Rows</th><th>Action</th></tr></thead><tbody>'+all.map(w=>'<tr><td><strong>'+esc(w.name)+'</strong><div class="footnote">'+(w.active?'ACTIVE DATABASE':esc(w.id))+'</div></td><td>'+esc(w.source)+(w.kind==='google'?'<div class="footnote">Sheet ID: '+esc(w.sheetId)+'</div>':'')+'</td><td>'+esc(date(w.createdAt))+'</td><td>'+esc(date(w.updatedAt))+'</td><td>'+esc(w.count)+'</td><td>'+btn(w.active?'Active':'Select', 'workspace-select:'+w.id)+(w.kind==='google'&&w.sheetId?' '+btn('Open Sheet','workspace-open:'+w.id):'')+(w.id!=='default'&&!w.active?' '+btn('Remove','workspace-delete:'+w.id,'btn-danger'):'')+'</td></tr>').join('')+'</tbody></table></div></section>';
+ const live=bridge.db();
+ mount.insertAdjacentHTML('beforeend','<section class="panel"><div class="panel-header"><div><h3>Database tables</h3><div class="panel-desc">Browse any table, download its import template or upload records</div></div><span class="tag blue">'+TABLES.length+' modules</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Module</th><th>Table name</th><th>Record count</th><th>Controls</th></tr></thead><tbody>'+TABLES.map(t=>'<tr><td><strong>'+esc(SCHEMAS[t].title)+'</strong></td><td>'+esc(t)+'</td><td>'+esc(live[t]?.length||0)+'</td><td>'+btn('View','table-view:'+t)+' '+btn('Template','table-template:'+t)+' '+btn('Upload','table-import:'+t)+'</td></tr>').join('')+'</tbody></table></div></section>');
 }
 export async function refreshAdminPage(page){
  refreshIdentity();
  if(page==='users'&&isAdmin())await drawUsers();
  if(page==='databases'&&isAdmin())await drawWorkspaces();
  if(page==='bulk'){const select=document.getElementById('bulk-group'),m=document.getElementById('bulk-mode');if(select)select.value=group;if(m)m.value=mode}
+ const quick=document.getElementById('active-db-quick');if(quick&&isAdmin()){const all=await listWorkspaces();quick.innerHTML=all.map(w=>'<option value="'+esc(w.id)+'" '+(w.active?'selected':'')+'>'+esc(w.name)+(w.kind==='google'?' · Sheets':' · Local')+'</option>').join('')}
 }
 async function handleAdminAction(action){
+ if(action.startsWith('table-view:'))return bridge.setPage(action.slice('table-view:'.length));
+ if(action.startsWith('table-template:'))return downloadTableTemplate(action.slice('table-template:'.length));
+ if(action.startsWith('table-import:')){chooseBulkTable(action.slice('table-import:'.length));return bridge.setPage('bulk')}
  if(action==='logout'){const local=await restoreLocalWorkspace();bridge.setDb(local);logout();paintAuth();refreshIdentity();bridge.render();return}
  if(action==='workspace-import'){if(!isAdmin())return msg('Administrator only',true);document.getElementById('workspace-import-input')?.click();return}
  if(action==='bulk-template'){downloadTableTemplate(group);return}
@@ -118,6 +124,7 @@ function setupEvents(){
   handleAdminAction(control.dataset.adminAction).catch(err=>msg(err.message,true));
  },true);
  document.addEventListener('change',async e=>{
+  if(e.target.id==='active-db-quick'){await handleAdminAction('workspace-select:'+e.target.value).catch(err=>msg(err.message,true));return}
   if(e.target.id==='bulk-group'){group=e.target.value;preview=null;lastBulk=null;document.getElementById('bulk-selected').textContent=groupTitle[group]||SCHEMAS[group]?.title||group;return}
   if(e.target.id==='bulk-mode'){mode=e.target.value;preview=null;lastBulk=null;document.getElementById('bulk-selected-mode').textContent=mode;return}
   if(e.target.id==='workspace-import-input'){
