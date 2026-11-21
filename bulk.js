@@ -59,7 +59,7 @@ export async function parseBulkFile(file,group='all'){
  return {rows:output,source:file.name,tables:found}
 }
 export function previewBulk(source,current,{mode='skip',allowedTable=()=>true}={}){
- const temp=structuredClone(current),results=[],seen=new Set();
+ const temp=structuredClone(current),results=[],seen=new Set(),postShipments=[];
  const sorted=[...source.rows].sort((a,b)=>order.indexOf(a.table)-order.indexOf(b.table));
  for(const entry of sorted){
   const {table,record,excelRow}=entry,s=SCHEMAS[table],id=record[s.pk],signature=table+'|'+id;
@@ -70,6 +70,8 @@ export function previewBulk(source,current,{mode='skip',allowedTable=()=>true}={
   if(updated&&mode!=='update'){results.push({...entry,status:'ERROR',error:'Existing record; choose skip or update'});continue}
   if(updated&&['RECEIPTS','ADJUSTMENTS'].includes(table)&&old.posting==='Posted'){results.push({...entry,status:'ERROR',error:'Cannot update a posted stock movement'});continue}
   const proposed=updated?{...old,...record}:record;
+  const finalStatus=table==='CONTAINERS'&&['Dispatched','Arrived'].includes(proposed.status)?proposed.status:null;
+  if(finalStatus&&!['Dispatched','Arrived'].includes(old?.status)){postShipments.push({table,record:{...proposed},excelRow});proposed.status='Loaded'}
   try{
    validate(temp,table,proposed,updated);
    if(updated)temp[table]=temp[table].map(x=>x[s.pk]===id?proposed:x);
@@ -77,7 +79,12 @@ export function previewBulk(source,current,{mode='skip',allowedTable=()=>true}={
    results.push({...entry,record:proposed,status:updated?'UPDATE':'CREATE',error:''});
   }catch(e){results.push({...entry,status:'ERROR',error:e.message})}
  }
- const counts={create:results.filter(x=>x.status==='CREATE').length,update:results.filter(x=>x.status==='UPDATE').length,skip:results.filter(x=>x.status==='SKIP').length,error:results.filter(x=>x.status==='ERROR').length};
+ for(const shipment of postShipments){
+  const row=byId(temp,'CONTAINERS',shipment.record.id);if(!row)continue;
+  const statuses=shipment.record.status==='Arrived'?['Dispatched','Arrived']:['Dispatched'];
+  for(const status of statuses){const updated={...row,...shipment.record,status};try{validate(temp,'CONTAINERS',updated,true);temp.CONTAINERS=temp.CONTAINERS.map(x=>x.id===updated.id?updated:x);Object.assign(row,updated);results.push({...shipment,record:updated,status:'FINALIZE',error:''})}catch(e){results.push({...shipment,status:'ERROR',error:'Cannot confirm '+status+': '+e.message});break}}
+ }
+ const counts={create:results.filter(x=>x.status==='CREATE').length,update:results.filter(x=>x.status==='UPDATE').length,finalize:results.filter(x=>x.status==='FINALIZE').length,skip:results.filter(x=>x.status==='SKIP').length,error:results.filter(x=>x.status==='ERROR').length};
  const flags=diagnostics(temp).filter(x=>!x.ok);
  // Existing corrupted data need not block an unrelated master import, but new failures do.
  const before=new Set(diagnostics(current).filter(x=>!x.ok).map(x=>x.title));
