@@ -70,6 +70,8 @@ export function previewBulk(source,current,{mode='skip',allowedTable=()=>true,al
   if(updated&&mode==='skip'){results.push({...entry,status:'SKIP',error:'Already exists'});continue}
   if(updated&&mode!=='update'){results.push({...entry,status:'ERROR',error:'Existing record; choose skip or update'});continue}
   if(updated&&['RECEIPTS','ADJUSTMENTS'].includes(table)&&old.posting==='Posted'){results.push({...entry,status:'ERROR',error:'Cannot update a posted stock movement'});continue}
+  if(updated&&table==='CONTAINERS'&&['Dispatched','Arrived'].includes(old.status)){results.push({...entry,status:'ERROR',error:'Cannot overwrite an already confirmed container'});continue}
+  if(updated&&table==='DISPATCH'&&['Dispatched','Arrived'].includes(byId(temp,'CONTAINERS',old.shipment)?.status)){results.push({...entry,status:'ERROR',error:'Cannot overwrite confirmed dispatch lines'});continue}
   const proposed=updated?{...old,...record}:record;
   const finalStatus=table==='CONTAINERS'&&['Dispatched','Arrived'].includes(proposed.status)?proposed.status:null;
   if(finalStatus&&!['Dispatched','Arrived'].includes(old?.status)){postShipments.push({table,record:{...proposed},excelRow});proposed.status='Loaded'}
