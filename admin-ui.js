@@ -1,6 +1,6 @@
 import {SCHEMAS,TABLES,emptyDb,byId} from './core.js';
 import {ROLE_DEFINITIONS,MASTER_TABLES,initializeAccounts,currentUser,authenticate,changeOwnPassword,logout,isAdmin,may,listUsers,upsertUser,removeUser,roleLabels} from './admin.js';
-import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,loadLocal,saveLocal,updateWorkspaceMeta,putSheet,appendAudit,unlinkExcel} from './storage.js';
+import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,loadLocal,saveLocal,importExcel,updateWorkspaceMeta,putSheet,appendAudit,unlinkExcel} from './storage.js';
 import {downloadTableTemplate,parseBulkFile,previewBulk,importGroups,groupTitle,importOrder} from './bulk.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
 const date=v=>v?new Date(v).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
@@ -59,7 +59,7 @@ async function drawUsers(){
 async function drawWorkspaces(){
  const all=await listWorkspaces(),mount=document.getElementById('workspace-admin');if(!mount)return;
  const active=await activeWorkspaceInfo();
- mount.innerHTML='<div class="notice warning">Workspace list and timestamps are saved in this browser. Google Sheets original creation/modified times are not available using the current Sheets-only OAuth scope. A Google connection requires re-authentication after reload.</div><div class="settings-grid"><section class="settings-card"><h3>Create database</h3><form id="workspace-form" class="login-form"><label>Database name<input name="name" maxlength="90" placeholder="e.g. Live Inventory 2027" required></label><label>Start with<select name="seed"><option value="blank">Blank database</option><option value="clone">Copy currently loaded data</option></select></label><button class="btn btn-primary" type="submit">Create database</button></form></section><section class="settings-card"><h3>Current database</h3><p><strong>'+esc(active?.name||'Unselected')+'</strong></p><p>Source: '+esc(active?.source||'Unknown')+'<br>Created: '+esc(date(active?.createdAt))+'<br>Last app update: '+esc(date(active?.updatedAt))+'<br>Records: '+esc(active?.count??0)+'</p></section></div><section class="panel"><div class="panel-header"><div><h3>Database connections</h3><div class="panel-desc">Select a local database or reconnect to a registered Google spreadsheet</div></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Source / Connection</th><th>Created (local)</th><th>Last updated (app)</th><th>Rows</th><th>Action</th></tr></thead><tbody>'+all.map(w=>'<tr><td><strong>'+esc(w.name)+'</strong><div class="footnote">'+(w.active?'ACTIVE DATABASE':esc(w.id))+'</div></td><td>'+esc(w.source)+(w.kind==='google'?'<div class="footnote">Sheet ID: '+esc(w.sheetId)+'</div>':'')+'</td><td>'+esc(date(w.createdAt))+'</td><td>'+esc(date(w.updatedAt))+'</td><td>'+esc(w.count)+'</td><td>'+btn(w.active?'Active':'Select', 'workspace-select:'+w.id)+(w.kind==='google'&&w.sheetId?' '+btn('Open Sheet','workspace-open:'+w.id):'')+(w.id!=='default'&&!w.active?' '+btn('Remove','workspace-delete:'+w.id,'btn-danger'):'')+'</td></tr>').join('')+'</tbody></table></div></section>';
+ mount.innerHTML='<div class="notice warning">Workspace list and timestamps are saved in this browser. Google Sheets original creation/modified times are not available using the current Sheets-only OAuth scope. A Google connection requires re-authentication after reload.</div><div class="settings-grid"><section class="settings-card"><h3>Create database</h3><form id="workspace-form" class="login-form"><label>Database name<input name="name" maxlength="90" placeholder="e.g. Live Inventory 2027" required></label><label>Start with<select name="seed"><option value="blank">Blank database</option><option value="clone">Copy currently loaded data</option><option value="sample">Fresh demonstration dataset</option></select></label><button class="btn btn-primary" type="submit">Create database</button></form><hr><h3>Load a previous Excel file</h3><p>Import a workbook as a new, separate database. Your current workspace remains unchanged.</p><div class="settings-actions">'+btn('Choose Excel → New database','workspace-import','btn-primary')+'</div><input id="workspace-import-input" hidden type="file" accept=".xlsx,.xls,.ods"></section><section class="settings-card"><h3>Current database</h3><p><strong>'+esc(active?.name||'Unselected')+'</strong></p><p>Source: '+esc(active?.source||'Unknown')+'<br>Created: '+esc(date(active?.createdAt))+'<br>Last app update: '+esc(date(active?.updatedAt))+'<br>Records: '+esc(active?.count??0)+'</p></section></div><section class="panel"><div class="panel-header"><div><h3>Database connections</h3><div class="panel-desc">Select a local database or reconnect to a registered Google spreadsheet</div></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Source / Connection</th><th>Created (local)</th><th>Last updated (app)</th><th>Rows</th><th>Action</th></tr></thead><tbody>'+all.map(w=>'<tr><td><strong>'+esc(w.name)+'</strong><div class="footnote">'+(w.active?'ACTIVE DATABASE':esc(w.id))+'</div></td><td>'+esc(w.source)+(w.kind==='google'?'<div class="footnote">Sheet ID: '+esc(w.sheetId)+'</div>':'')+'</td><td>'+esc(date(w.createdAt))+'</td><td>'+esc(date(w.updatedAt))+'</td><td>'+esc(w.count)+'</td><td>'+btn(w.active?'Active':'Select', 'workspace-select:'+w.id)+(w.kind==='google'&&w.sheetId?' '+btn('Open Sheet','workspace-open:'+w.id):'')+(w.id!=='default'&&!w.active?' '+btn('Remove','workspace-delete:'+w.id,'btn-danger'):'')+'</td></tr>').join('')+'</tbody></table></div></section>';
 }
 export async function refreshAdminPage(page){
  refreshIdentity();
@@ -69,6 +69,7 @@ export async function refreshAdminPage(page){
 }
 async function handleAdminAction(action){
  if(action==='logout'){logout();paintAuth();refreshIdentity();bridge.render();return}
+ if(action==='workspace-import'){if(!isAdmin())return msg('Administrator only',true);document.getElementById('workspace-import-input')?.click();return}
  if(action==='bulk-template'){downloadTableTemplate(group);return}
  if(action==='bulk-file'){document.getElementById('bulk-upload-input')?.click();return}
  if(action==='bulk-clear'){preview=null;lastBulk=null;bridge.render();return}
@@ -117,6 +118,15 @@ function setupEvents(){
  document.addEventListener('change',async e=>{
   if(e.target.id==='bulk-group'){group=e.target.value;preview=null;lastBulk=null;document.getElementById('bulk-selected').textContent=groupTitle[group]||SCHEMAS[group]?.title||group;return}
   if(e.target.id==='bulk-mode'){mode=e.target.value;preview=null;lastBulk=null;document.getElementById('bulk-selected-mode').textContent=mode;return}
+  if(e.target.id==='workspace-import-input'){
+   const file=e.target.files?.[0];if(!file)return;
+   try{const data=await importExcel(file);const n=Object.values(data).reduce((sum,arr)=>sum+arr.length,0);if(!n)throw Error('No known source table records found in the file');
+    const base=file.name.replace(/\.[^.]+$/,'').slice(0,75);const name=prompt('Name for imported database',base);if(!name)return;
+    const workspace=await createWorkspace(name,'Imported Excel: '+file.name+' (file last modified '+new Date(file.lastModified).toLocaleString()+')',data);
+    msg('Created '+workspace.name+' with '+n+' records');await drawWorkspaces();
+   }catch(err){msg(err.message,true)}finally{e.target.value=''}
+   return;
+  }
   if(e.target.id==='bulk-upload-input'){
    const file=e.target.files?.[0];if(!file)return;
    try{lastBulk=await parseBulkFile(file,group);
@@ -143,7 +153,7 @@ function setupEvents(){
     userEditing='';await drawUsers();msg('User saved');
    }else if(form.id==='workspace-form'){
     if(!isAdmin())throw Error('Admin required');
-    const seed=fd.get('seed')==='clone'?structuredClone(bridge.db()):emptyDb();
+    const seed=fd.get('seed')==='clone'?structuredClone(bridge.db()):fd.get('seed')==='sample'?bridge.demoData():emptyDb();
     const w=await createWorkspace(String(fd.get('name')),'Local browser',seed);
     msg('Database created: '+w.name);await drawWorkspaces();
    }
