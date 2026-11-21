@@ -1,3 +1,4 @@
+import {detectLan,isLan,lanSession,lanLogin,lanLogout,lanPassword,lanUsers,lanSaveUser,lanRemoveUser,lanLease} from './lan.js';
 // Browser-local accounts and permissions. NOT a trusted production authentication boundary.
 // For real multi-user Google Sheets access, enforce these rules on a server-side API.
 const IDB='flowstock-admin-v1';
@@ -22,6 +23,7 @@ let actor=null;
 const sessionKey='flowstock-user-session-v1';
 const cleanUser=u=>({username:u.username,displayName:u.displayName,roles:[...u.roles],active:u.active!==false,createdAt:u.createdAt,updatedAt:u.updatedAt,mustChangePassword:!!u.mustChangePassword});
 export async function initializeAccounts(){
+ if(await detectLan()){const remote=await lanSession();actor=remote?cleanUser(remote):null;return actor?cleanUser(actor):null}
  let users=await read('users');
  if(!users||!users.length){const salt=makeSalt(),now=new Date().toISOString();users=[{username:'admin',displayName:'System Administrator',roles:['ADMIN'],active:true,salt,hash:await hash('admin',salt),mustChangePassword:true,createdAt:now,updatedAt:now}];await write('users',users)}
  const username=sessionStorage.getItem(sessionKey);
@@ -29,14 +31,15 @@ export async function initializeAccounts(){
  return actor?cleanUser(actor):null;
 }
 export const currentUser=()=>actor?cleanUser(actor):null;
-export function may(permission,table){if(!actor||!actor.active||actor.mustChangePassword)return false;if(actor.roles.includes('ADMIN'))return true;if(permission==='read')return actor.roles.some(x=>ROLES[x]?.permissions.includes('read'));const master=MASTER_TABLES.has(table),kind=master?'master':'transaction';return actor.roles.some(role=>ROLES[role]?.permissions.includes(kind+'.'+permission))}
+export function may(permission,table){if(!actor||!actor.active||actor.mustChangePassword)return false;if(isLan()&&permission!=='read'&&!lanLease().mine)return false;if(actor.roles.includes('ADMIN'))return true;if(permission==='read')return actor.roles.some(x=>ROLES[x]?.permissions.includes('read'));const master=MASTER_TABLES.has(table),kind=master?'master':'transaction';return actor.roles.some(role=>ROLES[role]?.permissions.includes(kind+'.'+permission))}
 export function isAdmin(){return !!actor&&actor.roles.includes('ADMIN')}
-export async function authenticate(username,password){const users=await read('users')||[];const u=users.find(x=>x.username===safeName(username).toLowerCase());if(!u||!u.active||await hash(password,u.salt)!==u.hash)throw Error('Invalid credentials or account disabled');actor=u;sessionStorage.setItem(sessionKey,u.username);return cleanUser(u)}
-export function logout(){actor=null;sessionStorage.removeItem(sessionKey)}
-export async function changeOwnPassword(current,next){if(!actor)throw Error('Sign in first');if(next.length<10)throw Error('New password must contain at least 10 characters');if(next==='admin')throw Error('Choose a password other than the initial default');const users=await read('users'),u=users.find(x=>x.username===actor.username);if(await hash(current,u.salt)!==u.hash)throw Error('Current password is incorrect');u.salt=makeSalt();u.hash=await hash(next,u.salt);u.mustChangePassword=false;u.updatedAt=new Date().toISOString();await write('users',users);actor=u;return cleanUser(u)}
-export async function listUsers(){if(!isAdmin())throw Error('Admin access required');return (await read('users')||[]).map(cleanUser)}
+export async function authenticate(username,password){if(isLan()){actor=await lanLogin(username,password);return cleanUser(actor)}const users=await read('users')||[];const u=users.find(x=>x.username===safeName(username).toLowerCase());if(!u||!u.active||await hash(password,u.salt)!==u.hash)throw Error('Invalid credentials or account disabled');actor=u;sessionStorage.setItem(sessionKey,u.username);return cleanUser(u)}
+export async function logout(){if(isLan())await lanLogout();actor=null;sessionStorage.removeItem(sessionKey)}
+export async function changeOwnPassword(current,next){if(isLan()){actor=await lanPassword(current,next);return cleanUser(actor)}if(!actor)throw Error('Sign in first');if(next.length<10)throw Error('New password must contain at least 10 characters');if(next==='admin')throw Error('Choose a password other than the initial default');const users=await read('users'),u=users.find(x=>x.username===actor.username);if(await hash(current,u.salt)!==u.hash)throw Error('Current password is incorrect');u.salt=makeSalt();u.hash=await hash(next,u.salt);u.mustChangePassword=false;u.updatedAt=new Date().toISOString();await write('users',users);actor=u;return cleanUser(u)}
+export async function listUsers(){if(isLan())return lanUsers();if(!isAdmin())throw Error('Admin access required');return (await read('users')||[]).map(cleanUser)}
 function checkedRoles(roles){const values=[...new Set(roles.filter(x=>ROLES[x]))];if(!values.length)throw Error('Select at least one role');return values.includes('ADMIN')?['ADMIN']:values}
 export async function upsertUser({username,displayName,roles,active,password}){
+ if(isLan())return lanSaveUser({username,displayName,roles,active,password});
  if(!isAdmin())throw Error('Admin access required');
  username=safeName(username).toLowerCase();if(!/^[a-z0-9._-]{3,50}$/.test(username))throw Error('Username must be 3–50 letters, digits, periods, hyphens or underscores');
  const users=await read('users')||[],existing=users.find(x=>x.username===username);
@@ -52,7 +55,7 @@ export async function upsertUser({username,displayName,roles,active,password}){
  if(actor.username===username)actor=u;
  return cleanUser(u)
 }
-export async function removeUser(username){if(!isAdmin())throw Error('Admin required');if(username==='admin'||username===actor.username)throw Error('Cannot remove this administrator');const users=await read('users')||[];const result=users.filter(x=>x.username!==username);if(result.length===users.length)throw Error('User not found');await write('users',result)}
+export async function removeUser(username){if(isLan())return lanRemoveUser(username);if(!isAdmin())throw Error('Admin required');if(username==='admin'||username===actor.username)throw Error('Cannot remove this administrator');const users=await read('users')||[];const result=users.filter(x=>x.username!==username);if(result.length===users.length)throw Error('User not found');await write('users',result)}
 export function roleLabels(roles){return (roles||[]).map(x=>ROLES[x]?.label||x).join(', ')}
 export async function getPreferences(){return await read('preferences')||{}}
 export async function setPreferences(pref){await write('preferences',pref)}
