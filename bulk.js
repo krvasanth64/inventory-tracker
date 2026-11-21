@@ -58,12 +58,13 @@ export async function parseBulkFile(file,group='all'){
  if(output.length>LIMIT)throw Error('Import limit '+LIMIT+' rows per upload; split your file');
  return {rows:output,source:file.name,tables:found}
 }
-export function previewBulk(source,current,{mode='skip',allowedTable=()=>true}={}){
+export function previewBulk(source,current,{mode='skip',allowedTable=()=>true,allowedRecord=()=>true}={}){
  const temp=structuredClone(current),results=[],seen=new Set(),postShipments=[];
  const sorted=[...source.rows].sort((a,b)=>order.indexOf(a.table)-order.indexOf(b.table));
  for(const entry of sorted){
   const {table,record,excelRow}=entry,s=SCHEMAS[table],id=record[s.pk],signature=table+'|'+id;
   if(!allowedTable(table)){results.push({...entry,status:'ERROR',error:'Role does not permit importing '+table});continue}
+  if(!allowedRecord(table,record)){results.push({...entry,status:'ERROR',error:'Stock posting / dispatch role required for confirmed rows'});continue}
   if(seen.has(signature)){results.push({...entry,status:'ERROR',error:'Duplicate ID within import'});continue}seen.add(signature);
   const old=byId(temp,table,id),updated=!!old;
   if(updated&&mode==='skip'){results.push({...entry,status:'SKIP',error:'Already exists'});continue}
