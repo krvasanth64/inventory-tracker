@@ -81,13 +81,190 @@ else {const sku=record.sku||lineSku(db,editingTable,record);const list=f.key==='
 return '<div class="field '+(f.type==='textarea'?'wide':'')+'">'+title+field+'</div>'}
 function isoDate(v){if(!v)return '';const d=new Date(v);return Number.isNaN(d.getTime())?'':d.toISOString().slice(0,10)}
 function genId(t){const prefix={BUYERS:'BUY',SUPPLIERS:'SUP',WAREHOUSES:'WH',ITEMS:'SKU',BUYER_PO:'BPO',BUYER_LINES:'BL',SUPPLIER_PO:'SPO',SUPPLIER_LINES:'SL',RECEIPTS:'GRN',ADJUSTMENTS:'ADJ',ALLOCATIONS:'ALC',CONTAINERS:'SHP',DISPATCH:'DSP'}[t]||'ROW';let n=1;while(byId(db,t,prefix+'-'+String(n).padStart(4,'0')))n++;return prefix+'-'+String(n).padStart(4,'0')}
-function openForm(t,id=null,defaults={}){if(!canWrite(t))return notify('This role cannot create or edit '+t,true);editingTable=t;editId=id;const s=SCHEMAS[t],r=id?byId(db,t,id):{[s.pk]:genId(t),...defaults};if(!r)return notify('Record not found',true);
+function editorUnique(t){
+ const pk=SCHEMAS[t].pk,used=new Set(db[t].map(x=>String(x[pk])));
+ for(const x of editorLines)used.add(String(x[pk]||''));
+ const prefix={BUYER_LINES:'BL',SUPPLIER_LINES:'SL',DISPATCH:'DSP',RECEIPTS:'GRN',ADJUSTMENTS:'ADJ',ALLOCATIONS:'ALC'}[t]||'ROW';
+ let n=1,id='';do{id=prefix+'-'+String(n++).padStart(5,'0')}while(used.has(id));return id;
+}
+function addEditorLine(defaults={}){
+ const parent=editingTable,child=editorMode==='document'?CHILDREN[parent].table:parent,pk=SCHEMAS[child].pk;
+ const base=editorMode==='document'?{[CHILDREN[parent].link]:editorHeader[SCHEMAS[parent].pk]}:{};
+ let next={...base,[pk]:child==='UOM_MAP'?'':editorUnique(child),...defaults};
+ if(child==='UOM_MAP'){next.sku=editorHeader.sku;next.id=next.sku+'|'+(next.uom||'');next.factor=next.factor||1;next.active='Yes'}
+ if(['BUYER_LINES','SUPPLIER_LINES'].includes(child)&&next.sku)next.uom=byId(db,'ITEMS',next.sku)?.baseUom||next.uom||'';
+ if(['RECEIPTS','ALLOCATIONS','DISPATCH'].includes(child)&&!next.uom){
+  const sku=lineSku(db,child,next);
+  next.uom=byId(db,'ITEMS',sku)?.baseUom||'';
+ }
+ if(child==='RECEIPTS'){next.posting='Draft';next.quality='Accepted'}
+ if(child==='ADJUSTMENTS')next.posting='Draft';
+ if(child==='ALLOCATIONS')next.control='Active';
+ if(child==='BUYER_LINES')next.cancelled=0;
+ if(child==='SUPPLIER_LINES')next.rate=next.rate||0;
+ if(SCHEMAS[child].fields.some(f=>f.key==='date')&&!next.date)next.date=new Date().toLocaleDateString('sv-SE');
+ editorLines.push(next);
+}
+function renderEditor(){
+ $('modal-backdrop').classList.remove('hidden');
+ $('modal-backdrop').classList.add('editor-modal-backdrop');
+ $('form-fields').className='form-grid editor-host';
+ $('modal-title').textContent=(editId?'Edit ':'New ')+SCHEMAS[editingTable].title;
+ $('modal-subtitle').textContent=editorMode==='document'?'DOCUMENT + ALL ITEMS':'MULTIPLE LINES · ONE SAVE';
+ $('save-record').textContent=editorMode==='document'?'Save Document & Items':'Save All Rows';
+ $('save-record').hidden=editorLocked;
+ $('form-fields').innerHTML=editorMode==='document'?documentFormHTML(db,editingTable,editorHeader,editorLines,editorLocked):groupedFormHTML(db,editingTable,editorLines,editorLocked);
+ $('record-form').onsubmit=saveEditor;
+}
+function openDocument(t,id=null,defaults={}){
+ if(!may('read'))return notify('Read access required',true);
+ const pk=SCHEMAS[t].pk,original=id?byId(db,t,id):null;
+ if(id&&!original)return notify('Document not found',true);
+ if(!id&&!canWrite(t))return notify('Create permission required',true);
+ editingTable=t;editId=id;editorMode='document';editorRemoved=[];
+ editorHeader=structuredClone(original||{[pk]:genId(t),...defaults});
+ const child=CHILDREN[t],parentId=editorHeader[pk];
+ editorLines=db[child.table].filter(x=>x[child.link]===parentId).map(x=>structuredClone(x));
+ editorLocked=!canWrite(t)||t==='CONTAINERS'&&['Dispatched','Arrived'].includes(original?.status);
+ if(!id&&t==='SUPPLIER_PO'&&workflowState.purchaseSku){
+  addEditorLine({sku:workflowState.purchaseSku,uom:byId(db,'ITEMS',workflowState.purchaseSku)?.baseUom||''});
+  workflowState.purchaseSku='';
+ }
+ if(!id&&!editorLines.length&&t!=='ITEMS')addEditorLine();
+ renderEditor();
+}
+function openGrouped(t,id=null,defaults={}){
+ if(!id&&!canWrite(t))return notify('Create permission required',true);
+ const old=id?byId(db,t,id):null;if(id&&!old)return notify('Record not found',true);
+ editingTable=t;editId=id;editorMode='entries';editorHeader=null;editorRemoved=[];editorLines=[];
+ editorLocked=!canWrite(t)||!!(old?.posting==='Posted');
+ if(old)editorLines.push(structuredClone(old));else addEditorLine(defaults);
+ renderEditor();
+}
+function onEditorField(el){
+ const mode=el.dataset.editorScope,field=el.dataset.editorField,index=Number(el.dataset.editorIndex);
+ const target=mode==='header'?editorHeader:editorLines[index];if(!target)return;
+ const table=mode==='header'?editingTable:editorMode==='document'?CHILDREN[editingTable].table:editingTable;
+ const f=SCHEMAS[table].fields.find(x=>x.key===field);if(!f)return;
+ target[field]=f.type==='number'?(el.value===''?'':Number(el.value)):el.value;
+ if(table==='UOM_MAP'&&['uom','sku'].includes(field))target.id=target.sku+'|'+(target.uom||'');
+ if(['sku','supplierLine','buyerLine','allocation'].includes(field)){
+  const sku=lineSku(db,table,target);
+  const preferred=byId(db,'ITEMS',sku)?.baseUom||'';
+  if(preferred&&(!target.uom||field==='sku'))target.uom=preferred;
+  renderEditor();
+ }
+}
+function removeEditorLine(index){
+ const child=editorMode==='document'?CHILDREN[editingTable].table:editingTable,pk=SCHEMAS[child].pk;
+ const row=editorLines[index];if(!row)return;
+ if(byId(db,child,row[pk]))editorRemoved.push(row[pk]);
+ editorLines.splice(index,1);
+ renderEditor();
+}
+function editorReadOnly(op){
+ return (['RECEIPTS','ADJUSTMENTS'].includes(op.table)&&op.record?.posting==='Posted'
+  ||op.table==='CONTAINERS'&&['Dispatched','Arrived'].includes(op.record?.status))
+  &&op.kind!=='delete'&&!may('post',op.table);
+}
+async function commitPlan(plan,label){
+ if(!plan.operations.length)return notify('Nothing to save',true);
+ if(plan.operations.some(editorReadOnly))throw Error('Stock Posting role or Admin required for confirmed transactions');
+ if(connected()){
+  db=await applySheetChangeSet(plan.operations,db);
+  try{await appendAudit('SAVE','MULTI',label,plan.operations.length+' record actions')}catch(e){notify(e.message,true)}
+ }else{
+  await saveLocal(plan.next);db=plan.next;
+  try{await auditLocal('SAVE','MULTI',label)}catch(e){notify(e.message,true)}
+ }
+}
+async function saveEditor(e){
+ e.preventDefault();
+ if(pending||editorLocked)return;
+ try{
+  let plan;
+  if(editorMode==='document'){
+   const child=CHILDREN[editingTable].table;
+   if(['BUYER_PO','SUPPLIER_PO'].includes(editingTable)&&!editorLines.length)throw Error('Add at least one order item before saving');
+   for(const line of editorLines){if(child==='UOM_MAP')line.id=editorHeader.sku+'|'+line.uom}
+   plan=prepareDocument(db,editingTable,editorHeader,editorLines,editorRemoved);
+  }else plan=prepareEntries(db,editingTable,editorLines);
+  pending=true;const name=editingTable,id=editorHeader?.[SCHEMAS[name].pk]||'Multiple rows';
+  await commitPlan(plan,name+' '+id);
+  closeModal();notify('Saved document and all item rows');render();
+ }catch(err){notify(err.message,true);if(connected()&&/partial|changed|HTTP|timeout/i.test(err.message))await refresh().catch(()=>{})}
+ finally{pending=false}
+}
+function selectedFor(t){return [...(checkedRows.get(t)||new Set())].filter(id=>!!byId(db,t,id))}
+function beginBulk(t,kind){
+ if(!canWrite(t))return notify('Write permission denied',true);
+ const ids=selectedFor(t);
+ if(!ids.length)return notify('Select one or more rows first',true);
+ if(ids.length>150)return notify('Maximum 150 records per bulk operation',true);
+ editorMode='bulk';editingTable=t;editId=null;editorLocked=false;
+ bulkState={table:t,kind,ids,preview:null};
+ $('modal-backdrop').classList.remove('hidden');$('modal-backdrop').classList.add('editor-modal-backdrop');
+ $('form-fields').className='form-grid editor-host';
+ $('modal-title').textContent=kind==='delete'?'Bulk Delete · '+SCHEMAS[t].title:'Bulk Edit · '+SCHEMAS[t].title;
+ $('modal-subtitle').textContent=ids.length+' SELECTED RECORDS';
+ if(kind==='edit'){
+  $('form-fields').innerHTML=bulkEditFormHTML(t,ids);
+  $('save-record').textContent='Preview Changes';$('save-record').hidden=false;
+ }else{
+  const plan=prepareBulkDelete(db,t,ids);bulkState.preview=plan;
+  $('form-fields').innerHTML=bulkDeleteFormHTML(t,plan.operations,plan.errors.map(error=>({id:error.split(':')[0],error})));
+  $('save-record').textContent='Delete Eligible Records';$('save-record').hidden=!plan.operations.length;
+ }
+ $('record-form').onsubmit=saveBulk;
+}
+function bulkFieldControl(){
+ const f=SCHEMAS[editingTable].fields.find(x=>x.key===$('bulk-edit-field').value);
+ if(!f)return;
+ const el=$('bulk-edit-value');
+ if(f.type==='select')el.innerHTML='<select id="bulk-edit-input">'+f.options.map(v=>'<option value="'+escapeHtml(v)+'">'+escapeHtml(v)+'</option>').join('')+'</select>';
+ else el.innerHTML='<input id="bulk-edit-input" type="'+(f.type==='number'?'number':f.type==='date'?'date':'text')+'" '+(f.type==='number'?'step="any"':'')+' placeholder="New '+escapeHtml(f.label)+'">';
+}
+async function saveBulk(e){
+ e.preventDefault();if(pending||!bulkState)return;
+ try{
+  if(bulkState.kind==='edit'&&!bulkState.preview){
+   const field=$('bulk-edit-field')?.value;
+   if(!field)throw Error('Choose a field');
+   const val=$('bulk-edit-input')?.value??'';
+   const f=SCHEMAS[bulkState.table].fields.find(x=>x.key===field);
+   const value=f?.type==='number'?(val===''?'':Number(val)):val;
+   bulkState.preview=prepareBulkEdit(db,bulkState.table,bulkState.ids,field,value);
+   const plan=bulkState.preview;
+   $('form-fields').innerHTML='<div class="notice">'+plan.operations.length+' valid changes; '+plan.errors.length+' blocked.</div>'+
+    (plan.errors.length?'<div class="editor-blockers">'+plan.errors.slice(0,30).map(x=>'<p>'+escapeHtml(x)+'</p>').join('')+'</div>':'')+
+    '<label class="editor-confirm"><input id="bulk-edit-confirm" type="checkbox"> Apply '+plan.operations.length+' valid changes</label>';
+   $('save-record').textContent='Apply Bulk Edit';$('save-record').hidden=!plan.operations.length;
+   return;
+  }
+  const confirmId=bulkState.kind==='delete'?'bulk-delete-confirm':'bulk-edit-confirm';
+  if(!$(confirmId)?.checked)throw Error('Confirm the selected bulk action');
+  const plan=bulkState.preview;if(!plan.operations.length)throw Error('No eligible changes');
+  pending=true;await commitPlan(plan,bulkState.kind+' '+bulkState.table);
+  checkedRows.delete(bulkState.table);closeModal();notify(plan.operations.length+' records processed');render();
+ }catch(err){notify(err.message,true);if(connected()&&/changed|HTTP|timeout/i.test(err.message))await refresh().catch(()=>{})}
+ finally{pending=false}
+}
+function openForm(t,id=null,defaults={}){
+ if(CHILDREN[t])return openDocument(t,id,defaults);
+ if(ENTRY_BATCH.has(t))return openGrouped(t,id,defaults);
+ const owner=Object.keys(CHILDREN).find(k=>CHILDREN[k].table===t);
+ if(owner){
+  const config=CHILDREN[owner],record=id?byId(db,t,id):null,ref=record?.[config.link]||defaults[config.link];
+  if(ref)return openDocument(owner,ref);
+  return notify('Open the parent document to manage its items together',true);
+ }
+ if(!canWrite(t))return notify('This role cannot create or edit '+t,true);editingTable=t;editId=id;const s=SCHEMAS[t],r=id?byId(db,t,id):{[s.pk]:genId(t),...defaults};if(!r)return notify('Record not found',true);
  if(!id){const today=new Date().toLocaleDateString('sv-SE');if(s.fields.some(x=>x.key==='date')&&!r.date)r.date=today;if(t==='BUYER_LINES'&&r.po&&!r.uom)r.uom='';if(t==='ALLOCATIONS'&&r.buyerLine&&!r.uom){const l=byId(db,'BUYER_LINES',r.buyerLine);r.uom=byId(db,'ITEMS',l?.sku)?.baseUom||''}if(t==='RECEIPTS'&&r.supplierLine&&!r.uom){const l=byId(db,'SUPPLIER_LINES',r.supplierLine);r.uom=l?.uom||''}if(t==='DISPATCH'&&r.allocation&&!r.uom){const a=byId(db,'ALLOCATIONS',r.allocation);r.uom=byId(db,'ITEMS',byId(db,'BUYER_LINES',a?.buyerLine)?.sku)?.baseUom||''}}
 if(id&&(['RECEIPTS','ADJUSTMENTS'].includes(t)&&r.posting==='Posted'||t==='CONTAINERS'&&['Dispatched','Arrived'].includes(r.status)))return notify('Posted records cannot be edited. Use a correcting transaction.',true);
 $('modal-title').textContent=(id?'Edit ':'New ')+s.title;$('modal-subtitle').textContent=id?'UPDATE RECORD':'CREATE RECORD';$('form-fields').innerHTML=s.fields.map(f=>formInput(f,r)).join('');$('modal-backdrop').classList.remove('hidden');
 $('record-form').onsubmit=saveForm;
 }
-function closeModal(){$('modal-backdrop').classList.add('hidden');editId=null;editingTable=null}
+function closeModal(){$('modal-backdrop').classList.add('hidden');$('modal-backdrop').classList.remove('editor-modal-backdrop');$('form-fields').className='form-grid';$('save-record').hidden=false;$('save-record').textContent='Save Record';editId=null;editingTable=null;editorMode='';editorHeader=null;editorLines=[];editorRemoved=[];bulkState=null}
 async function saveForm(e){e.preventDefault();if(pending)return;if(!canWrite(editingTable))return notify('Write permission denied',true);const t=editingTable,s=SCHEMAS[t],old=editId?byId(db,t,editId):null,r={...(old||{})};for(const f of s.fields){const v=$('fld-'+f.key)?.value??'';r[f.key]=f.type==='number'?(v===''?'':Number(v)):v.trim()}
 if(t==='UOM_MAP')r.id=r.sku+'|'+r.uom;
 try{if((['RECEIPTS','ADJUSTMENTS'].includes(t)&&r.posting==='Posted'||t==='CONTAINERS'&&['Dispatched','Arrived'].includes(r.status))&&!may('post',t))throw Error('Stock posting / dispatch confirmation requires the Stock Posting role or Admin');validate(db,t,r,!!editId);if(t==='BUYER_LINES'&&N(r.cancelled)>(baseQty(db,r.sku,r.uom,r.qty)||0))throw Error('Cancelled quantity exceeds order');pending=true;
