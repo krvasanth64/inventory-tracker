@@ -117,7 +117,7 @@ export function prepareEntries(db,table,entries=[],removed=[]){
 }
 export function prepareBulkEdit(db,table,ids,field,value){
  const schema=SCHEMAS[table],f=schema?.fields.find(x=>x.key===field);
- if(!f||f.key===schema.pk||f.type==='ref'||field==='uom'||field==='sku'||field==='factor'||field==='baseUom')throw Error('This field cannot be bulk changed');
+ if(!f||f.key===schema.pk||f.type==='ref'||field==='uom'||field==='sku'||field==='baseUom')throw Error('This field cannot be bulk changed');
  if(['posting','status'].includes(field))throw Error('Posting or shipment status requires individual approval');
  if(!ids.length)throw Error('No records selected');
  if(ids.length>150)throw Error('Select 150 or fewer records per operation');
