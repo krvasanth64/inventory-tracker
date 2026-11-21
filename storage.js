@@ -136,7 +136,7 @@ export async function applySheetChangeSet(operations,baseDb){
   }
   const rowIndex=old?Number(old._row):await nextRow(op.table,next);
   if(!Number.isInteger(rowIndex)||rowIndex<7||rowIndex>2000)throw Error('Table row limit reached for '+op.table);
-  const saved={...(old||{}),...op.record,_row:rowIndex};
+  const saved={};for(const field of schema.fields)saved[field.key]=op.record[field.key]??old?.[field.key]??'';saved._row=rowIndex;
   for(const f of schema.fields)ranges.push({range:q(op.table)+'!'+col(f.col)+rowIndex,values:[[saved[f.key]??'']]});
   if(old)next[op.table]=next[op.table].map(x=>String(x[pk])===String(id)?saved:x);
   else next[op.table].push(saved);
