@@ -18,32 +18,18 @@
       <div class="brand"><span class="brand-mark">F</span><span><strong>FlowStock</strong><small>Trading operations</small></span></div>
       <div class="workspace-label">WORKSPACE</div>
       <nav id="navigation" aria-label="Main navigation">
+        <div class="nav-heading">DAILY WORK</div>
         <button class="nav-item active" data-page="dashboard"><span class="nav-icon">▦</span>Overview</button>
-        <button class="nav-item" data-page="outstanding"><span class="nav-icon">▤</span>PO Outstanding</button>
-        <button class="nav-item" data-page="stock"><span class="nav-icon">▥</span>Stock Availability</button>
-        <div class="nav-heading">OPERATIONS</div>
-        <button class="nav-item" data-page="BUYER_PO"><span class="nav-icon">▣</span>Buyer Orders</button>
-        <button class="nav-item" data-page="SUPPLIER_PO"><span class="nav-icon">▧</span>Supplier Purchases</button>
-        <button class="nav-item" data-page="RECEIPTS"><span class="nav-icon">↓</span>Goods Receipts</button>
-        <button class="nav-item" data-page="ALLOCATIONS"><span class="nav-icon">≡</span>Reservations</button>
-        <button class="nav-item" data-page="CONTAINERS"><span class="nav-icon">▥</span>Containers</button>
-        <button class="nav-item" data-page="DISPATCH"><span class="nav-icon">↗</span>Dispatch Lines</button>
-        <button class="nav-item" data-page="ADJUSTMENTS"><span class="nav-icon">±</span>Stock Adjustments</button>
-        <div class="nav-heading">DIRECTORIES</div>
-        <button class="nav-item" data-page="ITEMS"><span class="nav-icon">◈</span>Items</button>
-        <button class="nav-item" data-page="UOM_MAP"><span class="nav-icon">↔</span>UOM Conversion</button>
-        <button class="nav-item" data-page="BUYERS"><span class="nav-icon">◉</span>Buyers</button>
-        <button class="nav-item" data-page="SUPPLIERS"><span class="nav-icon">◇</span>Suppliers</button>
-        <button class="nav-item" data-page="WAREHOUSES"><span class="nav-icon">⌂</span>Warehouses</button>
-        <div class="nav-heading">ADMINISTRATION</div>
-        <button class="nav-item" data-page="bulk"><span class="nav-icon">⇧</span>Bulk Upload Center</button>
-        <button class="nav-item" data-page="databases" data-admin-only><span class="nav-icon">▤</span>Database Manager</button>
-        <button class="nav-item" data-page="users" data-admin-only><span class="nav-icon">◉</span>User Management</button>
+        <button class="nav-item" data-page="orders"><span class="nav-icon">▣</span>Buyer Orders</button>
+        <button class="nav-item" data-page="requirements"><span class="nav-icon">▤</span>Requirements & Pending</button>
+        <button class="nav-item" data-page="inward"><span class="nav-icon">↓</span>Stock In</button>
+        <button class="nav-item" data-page="outward"><span class="nav-icon">↗</span>Stock Out</button>
+        <button class="nav-item" data-page="stock"><span class="nav-icon">▥</span>Stock Balance</button>
+        <div class="nav-heading">TOOLS</div>
+        <button class="nav-item" data-page="manage"><span class="nav-icon">⚙</span>More Tools</button>
         <button class="nav-item" data-page="account"><span class="nav-icon">♙</span>My Account</button>
-        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span>Database & Settings</button>
-        <button class="nav-item" data-page="checks"><span class="nav-icon">✓</span>Data Checks</button>
       </nav>
-      <div class="sidebar-footer"><span class="status-dot"></span><span id="sidebar-mode">Local workspace</span><span class="version">V1.3</span></div>
+      <div class="sidebar-footer"><span class="status-dot"></span><span id="sidebar-mode">Local workspace</span><span class="version">V1.4</span></div>
     </aside>
     <div id="shade" class="shade"></div>
     <div class="main">
@@ -55,7 +41,7 @@
           <div id="active-database-label" class="active-db-label" title="Active database and timestamps">Loading database…</div>
           <span id="connection" class="connection"><span class="status-dot"></span>Local database</span>
           <button class="btn btn-ghost" id="refresh">↻ <span>Refresh</span></button>
-          <button class="btn btn-primary" id="quick-add">+ New entry</button>
+          <button class="btn btn-primary" id="quick-add">+ New Buyer Order</button>
         </div>
       </header>
       <main class="content">
