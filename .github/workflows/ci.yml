@@ -18,6 +18,7 @@ jobs:
           node --check admin-ui.js
           node --check bulk.js
           node --check storage.js
+          node --check workflow-ui.js
           node --check app.js
       - name: Transaction tests
         run: npm test
