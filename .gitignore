@@ -1,0 +1,8 @@
+# Never commit local or LAN production data, user password hashes, or credentials.
+lan-data/
+.env
+.env.*
+*.key
+*.pem
+node_modules/
+.DS_Store
