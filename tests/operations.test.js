@@ -96,3 +96,15 @@ test('existing linked UOM conversion cannot be bulk deleted',()=>{
  db.BUYER_LINES=[{id:'L1',po:'PO1',sku:'SKU1',qty:2,uom:'CTN',cancelled:0}];
  assert.match(deleteBlocker(db,'UOM_MAP','SKU1|CTN'),/in use/);
 });
+
+test('bulk UOM factor changes work only when the conversion is unused',()=>{
+ const db=setup();db.UOM_MAP=[{id:'SKU1|CTN',sku:'SKU1',uom:'CTN',factor:24,active:'Yes'}];
+ const result=prepareBulkEdit(db,'UOM_MAP',['SKU1|CTN'],'factor',12);
+ assert.equal(result.operations.length,1);
+ assert.equal(result.next.UOM_MAP[0].factor,12);
+ db.BUYER_PO=[{id:'PO1',buyer:'B1',control:'Active'}];
+ db.BUYER_LINES=[{id:'L1',po:'PO1',sku:'SKU1',qty:2,uom:'CTN',cancelled:0}];
+ const blocked=prepareBulkEdit(db,'UOM_MAP',['SKU1|CTN'],'factor',15);
+ assert.equal(blocked.operations.length,0);
+ assert.equal(blocked.errors.length,1);
+});
