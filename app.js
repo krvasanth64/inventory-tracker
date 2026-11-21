@@ -5,7 +5,7 @@ import {renderFlowHome,renderOrderDesk,renderOrderDetail,renderRequirements,rend
 import {initializeAdminBridge,canWrite,accessible,chooseBulkTable,renderAdminPage,refreshAdminPage} from './admin-ui.js';
 import {loadLocal,saveLocal,connected,googleId,authorize,connectSheet,disconnect,putSheet,clearSheet,createSheet,appendAudit,downloadExcel,importExcel,auditLocal,getLocalAudit,linkedFileName,openLinkedExcel,saveAsLinkedExcel,unlinkExcel,uploadLocalSnapshotToGoogle,activeWorkspaceInfo,updateWorkspaceMeta,restoreLocalWorkspace} from './storage.js';
 let db=emptyDb(),page='dashboard',search='',pageNumber=1,editId=null,editingTable=null,pending=false;
-let workflowState={buyer:'',search:'',orderId:'',containerId:''};
+let workflowState={buyer:'',search:'',orderId:'',containerId:'',purchaseSku:''};
 const $=id=>document.getElementById(id);
 const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(n,d=0)=>Number(n||0).toLocaleString('en-IN',{maximumFractionDigits:d,minimumFractionDigits:d});
@@ -80,7 +80,7 @@ let saved=r;if(connected())saved=await putSheet(t,r,db,!!editId);const next=stru
 db=next;if(connected()){await updateWorkspaceMeta({count:TABLES.reduce((n,k)=>n+db[k].length,0)});try{await appendAudit(editId?'UPDATE':'CREATE',t,r[s.pk])}catch(err){notify(err.message,true)}}else{await saveLocal(db);await auditLocal(editId?'UPDATE':'CREATE',t,r[s.pk])}
 const wasEdit=!!editId;closeModal();notify((wasEdit?'Updated':'Created')+' successfully');
  if(!wasEdit&&t==='BUYER_PO'){workflowState.orderId=r.id;setPage('orderdetail');if(canWrite('BUYER_LINES'))openForm('BUYER_LINES',null,{po:r.id});return}
- if(!wasEdit&&t==='SUPPLIER_PO'){setPage('SUPPLIER_PO');if(canWrite('SUPPLIER_LINES'))openForm('SUPPLIER_LINES',null,{po:r.id});return}
+ if(!wasEdit&&t==='SUPPLIER_PO'){const sku=workflowState.purchaseSku;workflowState.purchaseSku='';setPage('SUPPLIER_PO');if(canWrite('SUPPLIER_LINES')){const defaults={po:r.id};if(sku){defaults.sku=sku;defaults.uom=byId(db,'ITEMS',sku)?.baseUom||''}openForm('SUPPLIER_LINES',null,defaults)}return}
  if(!wasEdit&&t==='CONTAINERS'){workflowState.containerId=r.id;setPage('loadingdetail');return}
  if(t==='BUYER_LINES'){workflowState.orderId=r.po;setPage('orderdetail');return}
  if(t==='DISPATCH'){workflowState.containerId=r.shipment;setPage('loadingdetail');return}
@@ -107,6 +107,8 @@ async function processAction(action){if(!currentUser())return notify('Sign in fi
  if(action.startsWith('open-buyer:')){workflowState.buyer=decodeURIComponent(action.slice('open-buyer:'.length));workflowState.search='';return setPage('orders')}
  if(action.startsWith('new-po-line:'))return openForm('BUYER_LINES',null,{po:decodeURIComponent(action.slice('new-po-line:'.length))});
  if(action.startsWith('new-reservation:'))return openForm('ALLOCATIONS',null,{buyerLine:decodeURIComponent(action.slice('new-reservation:'.length))});
+ if(action.startsWith('new-supplier-for:')){const sku=decodeURIComponent(action.slice('new-supplier-for:'.length));const item=byId(db,'ITEMS',sku);if(!item)return notify('Item does not exist',true);workflowState.purchaseSku=sku;return openForm('SUPPLIER_PO',null,{supplier:item.supplier||''})}
+ if(action.startsWith('new-loading-reservation:'))return openForm('DISPATCH',null,{allocation:decodeURIComponent(action.slice('new-loading-reservation:'.length))});
  if(action.startsWith('new-receipt:'))return openForm('RECEIPTS',null,{supplierLine:decodeURIComponent(action.slice('new-receipt:'.length))});
  if(action.startsWith('new-container-line:'))return openForm('DISPATCH',null,{shipment:decodeURIComponent(action.slice('new-container-line:'.length))});
  if(action.startsWith('new:'))return openForm(action.slice(4));
