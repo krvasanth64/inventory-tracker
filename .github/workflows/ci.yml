@@ -14,6 +14,9 @@ jobs:
       - name: Syntax validation
         run: |
           node --check core.js
+          node --check admin.js
+          node --check admin-ui.js
+          node --check bulk.js
           node --check storage.js
           node --check app.js
       - name: Transaction tests
