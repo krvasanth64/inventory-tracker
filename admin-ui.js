@@ -1,3 +1,4 @@
+import {isLan,lanDetails,lanRename,lanLease,leaseAction} from './lan.js';
 import {SCHEMAS,TABLES,emptyDb,byId} from './core.js';
 import {ROLE_DEFINITIONS,MASTER_TABLES,initializeAccounts,currentUser,authenticate,changeOwnPassword,logout,isAdmin,may,listUsers,upsertUser,removeUser,roleLabels} from './admin.js';
 import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,restoreLocalWorkspace,loadLocal,saveLocal,importExcel,updateWorkspaceMeta,putSheet,bulkUpsertSheet,appendAudit,unlinkExcel} from './storage.js';
@@ -17,13 +18,13 @@ function msg(x,error=false){bridge?.notify(x,error)}
 function canWrite(t,bulk=false){if(connected()&&!isAdmin())return false;return may(bulk?'bulk':'write',t)}
 export {canWrite};
 export function chooseBulkTable(t){if(!SCHEMAS[t])throw Error('Unknown module');group=t;preview=null;lastBulk=null;previewContext=null}
-export function accessible(p){if(!currentUser())return false;if(p==='users'||p==='databases')return isAdmin();if(p==='bulk')return TABLES.some(t=>canWrite(t,true));return may('read')}
+export function accessible(p){if(!currentUser())return false;if(p==='users'||p==='databases'||p==='dbdetails')return isAdmin();if(p==='bulk')return TABLES.some(t=>canWrite(t,true));return may('read')}
 export function initializeAdminBridge(impl){bridge=impl;setupEvents();return initializeAccounts().then(()=>{paintAuth();refreshIdentity()})}
 function refreshIdentity(){
  const u=currentUser(),top=document.getElementById('user-identity');
  if(top)top.innerHTML=u?'<strong>'+esc(u.displayName)+'</strong> <small>'+esc(roleLabels(u.roles))+'</small>':'Not signed in';
  document.querySelectorAll('[data-admin-only]').forEach(n=>n.hidden=!isAdmin());
- document.querySelectorAll('[data-page]').forEach(n=>{if(n.dataset.page==='users'||n.dataset.page==='databases')n.hidden=!isAdmin();if(n.dataset.page==='bulk')n.hidden=!accessible('bulk')});
+ document.querySelectorAll('[data-page]').forEach(n=>{if(n.dataset.page==='users'||n.dataset.page==='databases'||n.dataset.page==='dbdetails')n.hidden=!isAdmin();if(n.dataset.page==='bulk')n.hidden=!accessible('bulk')});
 }
 function authMarkup(){
  const u=currentUser();
@@ -44,6 +45,7 @@ function userPanel(){
 export function renderAdminPage(page){
  if(page==='account')return userPanel();
  if(page==='bulk')return '<div class="notice">Use the matching template for each operation. The preview validates references, quantities and current records before upload. Import only files from a trusted source.</div><div class="settings-grid"><section class="settings-card"><h3>Bulk upload template</h3><p>Choose a module or a full group. Templates include column names and an example row to replace.</p><div class="field"><label>Import group / table</label><select id="bulk-group">'+groupOptions()+'</select></div><div class="settings-actions">'+btn('Download Excel template','bulk-template','btn-primary')+'</div><hr><div class="field"><label>Duplicate ID handling</label><select id="bulk-mode"><option value="skip">Skip existing (recommended)</option><option value="update">Update existing drafts/masters</option></select></div><div class="settings-actions">'+btn('Select Excel/CSV file','bulk-file','btn-primary')+'</div><input hidden id="bulk-upload-input" type="file" accept=".xlsx,.xls,.csv"></section><section class="settings-card"><h3>Upload controls</h3><p>Order of imports: Masters → Buyer/Supplier PO headers → PO lines → Inward → Reservations → Container → Dispatch lines.</p><div class="notice warning">Posted stock and confirmed dispatch records cannot be overwritten. Google Sheets bulk uploads are non-atomic: a connectivity failure may leave a partial upload. Export a backup and reconcile before continuing.</div><p>Current selection: <strong id="bulk-selected">'+esc(groupTitle[group]||SCHEMAS[group]?.title)+'</strong></p><p>Mode: <strong id="bulk-selected-mode">'+esc(mode)+'</strong></p></section></div><div id="bulk-preview">'+(preview?previewHtml(preview):'<div class="panel"><div class="panel-body">No file selected. Download a matching template and upload the completed workbook to preview.</div></div>')+'</div>';
+ if(page==='dbdetails'||page==='databases'&&isLan())return '<div id="lan-database-admin"><div class="panel"><div class="panel-body">Loading LAN database details...</div></div></div>';
  if(page==='databases')return '<div id="workspace-admin"><div class="panel"><div class="panel-body">Loading registered workspaces...</div></div></div>';
  if(page==='users')return '<div id="user-admin"><div class="panel"><div class="panel-body">Loading user accounts...</div></div></div>';
  return '';
@@ -51,6 +53,26 @@ export function renderAdminPage(page){
 function previewHtml(p){
  const {counts,results,source}=p;
  return '<section class="panel"><div class="panel-header"><div><h3>Bulk upload preview</h3><div class="panel-desc">'+esc(source)+'</div></div><div>'+btn('Clear preview','bulk-clear')+' '+btn('Confirm upload','bulk-commit','btn-primary')+'</div></div><div class="kpis compact">'+[['New',counts.create],['Update',counts.update],['Skipped',counts.skip],['Finalized',counts.finalize],['Errors',counts.error]].map(([n,x])=>'<div class="kpi"><div class="kpi-top">'+n+'</div><div class="kpi-number">'+x+'</div></div>').join('')+'</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Excel row</th><th>Module</th><th>Record ID</th><th>Action</th><th>Details</th></tr></thead><tbody>'+results.slice(0,250).map(x=>'<tr><td>'+esc(x.excelRow)+'</td><td>'+esc(x.table)+'</td><td>'+esc(x.record?.[SCHEMAS[x.table]?.pk]||'')+'</td><td><span class="tag '+(x.status==='ERROR'?'bad':x.status==='SKIP'?'warn':'good')+'">'+esc(x.status)+'</span></td><td>'+esc(x.error||'Validated')+'</td></tr>').join('')+'</tbody></table></div><div class="panel-body footnote">'+results.length+' rows checked; first 250 shown. '+(p.canApply?'Ready for review and upload.':'Fix errors before committing.')+'</div></section>';
+}
+async function drawLanDetails(){
+ const mount=document.getElementById('lan-database-admin');if(!mount||!isAdmin())return;
+ const info=await lanDetails(),l=info.editor||{},locations=info.urls||[];
+ mount.innerHTML='<div class="settings-grid">'+
+ '<section class="settings-card"><h3>Connected Database</h3>'+
+ '<p><strong>'+esc(info.name)+'</strong></p>'+
+ '<p><strong>Database file:</strong><br><code class="path-display">'+esc(info.location)+'</code></p>'+
+ '<p><strong>Storage folder:</strong><br><code class="path-display">'+esc(info.folder)+'</code></p>'+
+ '<p><strong>User accounts:</strong><br><code class="path-display">'+esc(info.usersFile)+'</code></p>'+
+ '<p><strong>Audit log:</strong><br><code class="path-display">'+esc(info.auditFile)+'</code></p>'+
+ '<p><strong>Revision:</strong> '+esc(info.revision)+' · <strong>Rows:</strong> '+esc(info.records)+'</p>'+
+ '<p><strong>Created:</strong> '+esc(date(info.createdAt))+'<br><strong>Last updated:</strong> '+esc(date(info.updatedAt))+'</p></section>'+
+ '<section class="settings-card"><h3>Admin Database Controls</h3>'+
+ '<form id="lan-rename-form" class="login-form"><label>Display name<input name="name" maxlength="100" value="'+esc(info.name)+'" required></label><button type="submit" class="btn btn-primary">Save Database Name</button></form>'+
+ '<hr><h3>Editor Lock</h3><p>'+(l.active?'Current editor: <strong>'+esc(l.holder)+'</strong>':'No active editor')+'</p>'+
+ '<p class="footnote">At most one signed-in user can hold the 90-second renewable edit lease. All other users can view the database. The admin can release an abandoned lock.</p>'+
+ (l.active?btn('Force Release Edit Lock','lan-force-release','btn-danger'):'')+
+ '<hr><h3>Shared LAN URLs</h3><p>'+locations.map(x=>'<code class="path-display">'+esc(x)+'</code>').join('</p><p>')+'</p>'+
+ '<div class="notice warning">Only this server process should write the database file. A shared folder path may be used for server storage, but other PCs must use the browser URL, not edit the file directly. HTTP on a trusted LAN does not encrypt credentials; configure HTTPS for secure deployment.</div></section></div>';
 }
 async function drawUsers(){
  const users=await listUsers(),container=document.getElementById('user-admin');if(!container)return;
@@ -68,15 +90,17 @@ async function drawWorkspaces(){
 export async function refreshAdminPage(page){
  refreshIdentity();
  if(page==='users'&&isAdmin())await drawUsers();
- if(page==='databases'&&isAdmin())await drawWorkspaces();
+ if((page==='dbdetails'||page==='databases'&&isLan())&&isAdmin())await drawLanDetails();
+ if(page==='databases'&&isAdmin()&&!isLan())await drawWorkspaces();
  if(page==='bulk'){const select=document.getElementById('bulk-group'),m=document.getElementById('bulk-mode');if(select)select.value=group;if(m)m.value=mode}
  const quick=document.getElementById('active-db-quick');if(quick&&isAdmin()){const all=await listWorkspaces();quick.innerHTML=all.map(w=>'<option value="'+esc(w.id)+'" '+(w.active?'selected':'')+'>'+esc(w.name)+(w.kind==='google'?' · Sheets':' · Local')+'</option>').join('')}
 }
 async function handleAdminAction(action){
+ if(action==='lan-force-release'){if(!isAdmin())throw Error('Administrator only');if(!confirm('Force release the current editing lock? Unsaved forms on that PC will lose write access.'))return;await leaseAction('force-release');await drawLanDetails();bridge.render();msg('Edit lock released');return}
  if(action.startsWith('table-view:'))return bridge.setPage(action.slice('table-view:'.length));
  if(action.startsWith('table-template:'))return downloadTableTemplate(action.slice('table-template:'.length));
  if(action.startsWith('table-import:')){chooseBulkTable(action.slice('table-import:'.length));return bridge.setPage('bulk')}
- if(action==='logout'){const local=await restoreLocalWorkspace();bridge.setDb(local);logout();paintAuth();refreshIdentity();bridge.render();return}
+ if(action==='logout'){const local=isLan()?emptyDb():await restoreLocalWorkspace();bridge.setDb(local);await logout();paintAuth();refreshIdentity();bridge.render();return}
  if(action==='workspace-import'){if(!isAdmin())return msg('Administrator only',true);document.getElementById('workspace-import-input')?.click();return}
  if(action==='bulk-template'){downloadTableTemplate(group);return}
  if(action==='bulk-file'){document.getElementById('bulk-upload-input')?.click();return}
@@ -145,16 +169,17 @@ function setupEvents(){
   }
  },true);
  document.addEventListener('submit',async e=>{
-  if(!['login-form','password-form','user-form','workspace-form'].includes(e.target.id))return;
+  if(!['login-form','password-form','user-form','workspace-form','lan-rename-form'].includes(e.target.id))return;
   e.preventDefault();e.stopImmediatePropagation();
   const form=e.target,fd=new FormData(form);
   try{
-   if(form.id==='login-form'){
-    await authenticate(fd.get('username'),fd.get('password'));paintAuth();refreshIdentity();bridge.render();msg('Signed in');
+   if(form.id==='lan-rename-form'){if(!isAdmin())throw Error('Administrator required');await lanRename(String(fd.get('name')));await drawLanDetails();await bridge.refresh();msg('Database display name saved')}
+   else if(form.id==='login-form'){
+    await authenticate(fd.get('username'),fd.get('password'));paintAuth();refreshIdentity();if(isLan())await bridge.refresh();else bridge.render();msg('Signed in');
    }else if(form.id==='password-form'){
     if(fd.get('newPassword')!==fd.get('confirm'))throw Error('Passwords do not match');
     await changeOwnPassword(String(fd.get('current')),String(fd.get('newPassword')));
-    paintAuth();refreshIdentity();bridge.render();msg('Password changed');
+    paintAuth();refreshIdentity();if(isLan())await bridge.refresh();else bridge.render();msg('Password changed');
    }else if(form.id==='user-form'){
     const roles=fd.getAll('roles').map(String);
     await upsertUser({username:fd.get('username'),displayName:fd.get('displayName'),password:String(fd.get('password')||''),roles,active:fd.has('active')});
