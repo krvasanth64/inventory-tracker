@@ -129,7 +129,7 @@ export function renderLoading(db,id){
  });
  const edit= ['Planning','Loaded'].includes(shipment.status);
  return '<div class="flow-back">'+button('← Back to Stock Out','go:outward')+'</div>'+
- intro(h(shipment.id)+' · '+h(shipment.number||''),buyer(db,shipment.buyer)+' · '+h(shipment.type||'Manual container')+' · '+h(shipment.status||'Planning'),(edit?button('Edit Container and Loading','edit:CONTAINERS:'+encodeURIComponent(id),true):'')+button('Container Details','edit:CONTAINERS:'+encodeURIComponent(id)))+
+ intro(h(shipment.id)+' · '+h(shipment.number||''),buyer(db,shipment.buyer)+' · '+h(shipment.type||'Manual container')+' · '+h(shipment.status||'Planning'),(edit?button('Edit Container and Loading','edit:CONTAINERS:'+encodeURIComponent(id),true):'')+(shipment.status==='Dispatched'?button('Mark Arrived','mark-arrived:'+encodeURIComponent(id),true):'')+button('View Container','edit:CONTAINERS:'+encodeURIComponent(id)))+
  '<div class="notice">Goods are deducted from stock and Buyer outstanding only after container status is Dispatched. Do not use Loaded as a shipping confirmation.</div>'+
  panel('Loading Items',rows.length+' item lines',table(['Dispatch Line','Allocation','Buyer','SKU','Loaded Qty','Status','Action'],rows));
 }
