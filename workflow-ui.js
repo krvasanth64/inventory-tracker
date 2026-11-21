@@ -81,16 +81,19 @@ export function renderOrderDetail(db,id){
 }
 export function renderRequirements(db,state={}){
  const lines=filterBuyer(buildRequirements(db),state.buyer||'',state.search||''),s=summarize(db),selected=state.buyer||'';
- const need=lines.filter(x=>x.outstanding>0&&x.status!=='Cancelled'),late=need.filter(x=>x.due&&new Date(x.due)<new Date()),unreserved=need.filter(x=>x.unreserved>0),supplierSkus=new Set(s.stockRows.filter(x=>x.shortage>0).map(x=>x.sku));
+ const need=lines.filter(x=>x.outstanding>0&&x.status!=='Cancelled'),late=need.filter(x=>x.due&&new Date(x.due)<new Date()),unreserved=need.filter(x=>x.unreserved>0),supplierSkus=new Set(s.stockRows.filter(x=>x.shortage>0&&x.demand>0).map(x=>x.sku));
  const rows=need.slice(0,120).map(l=>{
   const x=l.stock||{};
   return '<tr>'+td('<strong>'+buyer(db,l.buyer)+'</strong><div class="footnote">'+h(l.po)+'</div>')+td('<strong>'+h(l.sku)+'</strong><div class="footnote">'+item(db,l.sku)+'</div>')+td(date(l.due))+td(n(l.outstanding,2)+' '+uom(db,l.sku),'num')+td(n(l.reserved,2)+' '+uom(db,l.sku),'num')+td(n(x.available||0,2)+' '+uom(db,l.sku),'num')+td('<strong>'+n(l.unreserved,2)+' '+uom(db,l.sku)+'</strong>','num')+td(tag(l.unreserved===0?'Reserved':l.due&&new Date(l.due)<new Date()?'Overdue':(x.available||0)<l.unreserved?'Needs Stock':'Plan Stock'))+td(button('Reserve','new-reservation:'+encodeURIComponent(l.id)))+'</tr>';
  });
  const guidance='<div class="notice"><strong>Planning rule:</strong> Outstanding = ordered − cancelled − confirmed dispatch. Available = physical stock − open reservations. Free stock shown per row is shared across outstanding orders; do not add available quantities across rows. Reserve Stock commits inventory to one PO line.</div>';
+ const purchase=s.stockRows.filter(x=>x.demand>0&&x.shortage>0).sort((a,b)=>b.shortage-a.shortage).slice(0,60);
+ const purchaseRows=purchase.map(x=>'<tr>'+td('<strong>'+h(x.sku)+'</strong><div class="footnote">'+item(db,x.sku)+'</div>')+td(h(x.uom))+td(n(x.demand,2),'num')+td(n(x.physical,2),'num')+td(n(x.incoming,2),'num')+td(n(x.min,2),'num')+td('<strong>'+n(x.shortage,2)+'</strong>','num')+td(button('Create Purchase','new-supplier-for:'+encodeURIComponent(x.sku)))+'</tr>');
  return intro('Requirements & Outstanding','Follow up each Buyer’s unsent items, reserve available stock and identify what needs purchasing.',button('Reserve Stock','new:ALLOCATIONS',true)+button('Purchase from Supplier','go:SUPPLIER_PO')+button('Stock Availability','go:stock'))+
  '<div class="kpis workflow-kpis">'+stat('Open PO Items',need.length,'Buyer PO item lines')+stat('Not Fully Reserved',unreserved.length,'Require allocation')+stat('Overdue Items',late.length,'Past required date')+stat('SKUs Need Sourcing',supplierSkus.size,'Shortage after available supply')+'</div>'+
  '<div class="flow-filterbar">'+buyerSelector(db,selected)+searchBar(state.search||'')+'</div>'+guidance+
  panel('Buyer-wise pending requirements','Outstanding and stock values shown in each SKU base UOM',table(['Buyer / PO','Item','Required','Outstanding','Reserved','Free Stock','To Allocate','Priority','Action'],rows,'No outstanding items for this Buyer'))+
+ panel('Items to Purchase','Combined outstanding across all Buyers, minus physical stock and active Supplier PO pending; minimum stock retained',table(['SKU / Item','UOM','Buyer Demand','In Stock','Supplier Pending','Min Stock','To Purchase','Action'],purchaseRows,'No additional purchases indicated'))+
  panel('Next action','Use an explicit allocation before planning outward dispatch. Procurement shortage is calculated across all Buyers per SKU, never per row.','<div class="panel-body"><div class="flow-step-list"><div><b>1</b> Review pending Buyer items</div><div><b>2</b> Reserve available stock</div><div><b>3</b> Purchase any remaining shortfall</div><div><b>4</b> Receive goods and dispatch manually</div></div></div>');
 }
 export function renderInward(db,state={}){
@@ -111,7 +114,7 @@ export function renderOutward(db,state={}){
  const allocationRows=db.ALLOCATIONS.filter(x=>x.control!=='Released').slice(0,30).map(a=>{
   const l=s.buyerLines.find(x=>x.id===a.buyerLine),reserved=l?s.deliveries.filter(x=>x.allocation===a.id&&x.posted).reduce((n,x)=>n+x.base,0):0;
   const factor=l?(baseQty(db,l.sku,a.uom,a.qty)||0):0;
-  return '<tr>'+td(h(a.id))+td(l?buyer(db,l.buyer):'—')+td(h(l?.po||''))+td(h(l?.sku||''))+td(n(factor,2)+' '+uom(db,l?.sku),'num')+td(n(Math.max(0,factor-reserved),2)+' '+uom(db,l?.sku),'num')+td(button('Load Item','new:DISPATCH'))+'</tr>';
+  return '<tr>'+td(h(a.id))+td(l?buyer(db,l.buyer):'—')+td(h(l?.po||''))+td(h(l?.sku||''))+td(n(factor,2)+' '+uom(db,l?.sku),'num')+td(n(Math.max(0,factor-reserved),2)+' '+uom(db,l?.sku),'num')+td(button('Load Item','new-loading-reservation:'+encodeURIComponent(a.id)))+'</tr>';
  });
  return intro('Stock Out & Dispatch','Reserve by Buyer PO, enter manual container loading, then confirm dispatch. Planning does not reduce stock.',button('+ Plan Container','new:CONTAINERS',true)+button('Add Loading Item','new:DISPATCH')+button('Reserve Stock','new:ALLOCATIONS'))+
  '<div class="kpis workflow-kpis">'+stat('Containers to Send',planned.length,'Planning or loaded')+stat('Sent Containers',sent.length,'Confirmed dispatch / arrived')+stat('Open Reservations',db.ALLOCATIONS.filter(a=>a.control!=='Released').length,'Including partly shipped')+stat('Buyer Items Pending',open.length,'Still outstanding')+'</div>'+
