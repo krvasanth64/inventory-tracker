@@ -25,7 +25,7 @@ function labelOf(t,r){if(!r)return '';return r.name||r.number||r.sku||r.id||''}
 function displayRef(t,id){return escapeHtml(labelOf(t,byId(db,t,id))||id||'—')}
 function contentPanel(title,subtitle,body,action=''){return '<section class="panel"><div class="panel-header"><div><h3>'+title+'</h3><div class="panel-desc">'+subtitle+'</div></div>'+action+'</div>'+body+'</section>'}
 function primaryEntry(){
- if(SCHEMAS[page])return page;
+ if(SCHEMAS[page])return Object.values(CHILDREN).some(x=>x.table===page)?null:page;
  return {dashboard:'BUYER_PO',orders:'BUYER_PO',orderdetail:'BUYER_LINES',requirements:'ALLOCATIONS',inward:'RECEIPTS',outward:'CONTAINERS',loadingdetail:'DISPATCH'}[page]||null;
 }
 function quickDefaults(t){
@@ -39,7 +39,7 @@ function render(){
  $('crumb').textContent=title;$('page-title').textContent=title;$('page-description').textContent=descriptions[page]||'Manage, review and update operational records.';$('eyebrow').textContent=SCHEMAS[page]?'DATA MANAGEMENT':page==='settings'?'PREFERENCES':'CONTROL CENTER';
  $('sidebar-mode').textContent=connected()?'Google Sheets workspace':linkedFileName()?'Linked Excel: '+linkedFileName():'Local workspace';
  $('connection').className='connection'+(connected()?' cloud':'');$('connection').innerHTML='<span class="status-dot"></span>'+(connected()?'Google Sheets connected':linkedFileName()?'Live Excel linked':'Local database');
- $('page-actions').innerHTML=SCHEMAS[page]?(canWrite(page)?btn('+ New '+(SCHEMAS[page].title),'add','btn-primary'):'')+btn('Template','template-table:'+page)+(canWrite(page,true)?btn('Bulk upload','bulk-page:'+page):'')+btn('Export CSV','csv'):page==='stock'||page==='outstanding'||page==='requirements'?btn('Export CSV','csv'):'';
+ $('page-actions').innerHTML=SCHEMAS[page]?(canWrite(page)&&!Object.values(CHILDREN).some(x=>x.table===page)?btn('+ New '+(SCHEMAS[page].title),'add','btn-primary'):'')+btn('Template','template-table:'+page)+(canWrite(page,true)?btn('Bulk upload','bulk-page:'+page):'')+btn('Export CSV','csv'):page==='stock'||page==='outstanding'||page==='requirements'?btn('Export CSV','csv'):'';
  const quick=primaryEntry(),quickAllowed=!!quick&&canWrite(quick);$('quick-add').hidden=!quickAllowed;
  $('quick-add').disabled=pending||!quickAllowed;
  const quickLabels={BUYER_PO:'New Buyer Order',BUYER_LINES:'Add Order Item',ALLOCATIONS:'Reserve Stock',RECEIPTS:'Record Stock In',CONTAINERS:'Plan Container',DISPATCH:'Add Loading Item'};
@@ -280,8 +280,15 @@ const wasEdit=!!editId;closeModal();notify((wasEdit?'Updated':'Created')+' succe
  if(t==='ALLOCATIONS')return setPage('requirements');
  render()}catch(err){notify(err.message,true)}finally{pending=false}}
 function hasReferences(t,id){const refs={BUYERS:[['BUYER_PO','buyer'],['CONTAINERS','buyer']],SUPPLIERS:[['ITEMS','supplier'],['SUPPLIER_PO','supplier']],WAREHOUSES:[['RECEIPTS','warehouse'],['ADJUSTMENTS','warehouse'],['ALLOCATIONS','warehouse']],ITEMS:[['UOM_MAP','sku'],['BUYER_LINES','sku'],['SUPPLIER_LINES','sku'],['ADJUSTMENTS','sku']],BUYER_PO:[['BUYER_LINES','po']],SUPPLIER_PO:[['SUPPLIER_LINES','po']],BUYER_LINES:[['ALLOCATIONS','buyerLine'],['SUPPLIER_LINES','buyerLine']],SUPPLIER_LINES:[['RECEIPTS','supplierLine']],ALLOCATIONS:[['DISPATCH','allocation']],CONTAINERS:[['DISPATCH','shipment']]}[t]||[];return refs.some(([target,key])=>db[target].some(x=>x[key]===id))}
-async function removeRecord(t,id){if(!canWrite(t))return notify('Write permission denied',true);const row=byId(db,t,id);if(!row)return;const blocked=t==='DISPATCH'&&['Dispatched','Arrived'].includes(byId(db,'CONTAINERS',row.shipment)?.status)||['RECEIPTS','ADJUSTMENTS'].includes(t)&&row.posting==='Posted'||t==='CONTAINERS'&&['Dispatched','Arrived'].includes(row.status);if(blocked)return notify('Posted/shipped transactions cannot be deleted. Use a correction or reversal.',true);if(hasReferences(t,id))return notify('Record has linked transactions. Remove or correct references first.',true);if(!confirm('Delete '+t+' / '+id+'? This cannot be undone.'))return;
-try{pending=true;if(connected())await clearSheet(t,row);db[t]=db[t].filter(x=>x[SCHEMAS[t].pk]!==id);if(connected()){await updateWorkspaceMeta({count:TABLES.reduce((n,k)=>n+db[k].length,0)});try{await appendAudit('DELETE',t,id)}catch(e){notify(e.message,true)}}else{await saveLocal(db);await auditLocal('DELETE',t,id)}notify('Record deleted');render()}catch(e){notify(e.message,true)}finally{pending=false}}
+async function removeRecord(t,id){
+ if(!canWrite(t))return notify('Write permission denied',true);
+ const plan=prepareBulkDelete(db,t,[id]);
+ if(plan.errors.length)return notify('Cannot delete: '+plan.errors.join('; '),true);
+ if(!confirm('Delete '+t+' / '+id+' permanently? This cannot be undone.'))return;
+ try{pending=true;await commitPlan(plan,'DELETE '+t+' '+id);checkedRows.get(t)?.delete(id);notify('Record deleted');render()}
+ catch(e){notify(e.message,true);if(connected())await refresh().catch(()=>{})}
+ finally{pending=false}
+}
 async function refresh(){try{pending=true;if(connected()){const data=await connectSheet(googleId());db=data.db}else db=await loadLocal();render();notify('Database refreshed')}catch(e){notify(e.message,true)}finally{pending=false}}
 function csvText(rows){const safe=x=>{let v=String(x??'');if(/^[=+\-@]/.test(v))v="'"+v;return '"'+v.replaceAll('"','""')+'"'};return rows.map(r=>r.map(safe).join(',')).join('\r\n')}
 function downloadFile(name,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));a.download=name;document.body.append(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
