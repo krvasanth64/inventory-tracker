@@ -118,3 +118,10 @@
 .editor-blockers>div,.editor-blockers>p{padding:4px 0;margin:0}
 @media(max-width:1000px){.editor-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.editor-modal-backdrop .modal{width:99vw;max-height:97vh}.editor-modal-backdrop .editor-host{padding:12px;max-height:calc(97vh - 185px)}.editor-fields{grid-template-columns:1fr;gap:10px}.editor-section-head{padding:12px}.editor-table-wrap{max-height:37vh}.editor-table{min-width:760px}.bulk-toolbar{width:100%}}
+
+.lan-editor{display:flex;gap:7px;align-items:center;max-width:360px}
+.lan-editor .btn{padding:7px 11px;font-size:11px;white-space:nowrap}
+.lan-status{font-size:11px;font-weight:700;color:#51627b;white-space:nowrap}
+.path-display{display:block;overflow-wrap:anywhere;padding:9px 11px;border:1px solid #e4e9f1;background:#f6f8fd;border-radius:7px;font-size:11px;margin:5px 0}
+@media(max-width:980px){.lan-editor{max-width:210px}.lan-status{display:none}}
+@media(max-width:700px){.lan-editor{max-width:140px}.lan-editor .btn{font-size:10px}}
