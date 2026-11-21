@@ -123,6 +123,7 @@ function openDocument(t,id=null,defaults={}){
  if(!id&&!canWrite(t))return notify('Create permission required',true);
  editingTable=t;editId=id;editorMode='document';editorRemoved=[];
  editorHeader=structuredClone(original||{[pk]:genId(t),...defaults});
+ if(!id){const today=new Date().toLocaleDateString('sv-SE');if(SCHEMAS[t].fields.some(x=>x.key==='date')&&!editorHeader.date)editorHeader.date=today;if(['BUYER_PO','SUPPLIER_PO'].includes(t)&&!editorHeader.control)editorHeader.control='Active';if(t==='CONTAINERS'&&!editorHeader.status)editorHeader.status='Planning';if(t==='ITEMS'&&!editorHeader.active)editorHeader.active='Yes'}
  const child=CHILDREN[t],parentId=editorHeader[pk];
  editorLines=db[child.table].filter(x=>x[child.link]===parentId).map(x=>structuredClone(x));
  editorLocked=!canWrite(t)||t==='CONTAINERS'&&['Dispatched','Arrived'].includes(original?.status);
