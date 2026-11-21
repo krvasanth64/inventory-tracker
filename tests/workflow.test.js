@@ -60,3 +60,11 @@ test('overview and advanced menu render without exposing raw tables in daily nav
  assert.match(renderManagement(d,{admin:false,bulk:false}),/Master Data/);
  assert.doesNotMatch(renderManagement(d,{admin:false,bulk:false}),/Database Manager/);
 });
+
+test('on-hold Supplier orders are not counted as confirmed incoming stock',()=>{
+ const d=fixture();
+ d.SUPPLIER_PO[0].control='On Hold';
+ const stock=summarize(d).stockRows[0];
+ assert.equal(stock.incoming,0);
+ assert.equal(stock.shortage,90);
+});
