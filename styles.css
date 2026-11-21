@@ -29,3 +29,6 @@
 .active-db-quick{max-width:175px;padding:9px 28px 9px 10px;font-size:11px;color:#334155;background:#fff;border:1px solid #dce5f0;border-radius:8px;text-overflow:ellipsis}
 @media(max-width:1280px){.active-db-quick{max-width:125px}}
 @media(max-width:760px){.active-db-quick{display:none}}
+
+.compact.kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:760px){.compact.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
