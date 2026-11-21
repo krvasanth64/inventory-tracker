@@ -94,7 +94,7 @@ async function handleAdminAction(action){
    if(connected()){if(!isAdmin())throw Error('Google Sheets posting is restricted to admin until a trusted multi-user backend is installed');
     const fresh=await connectSheet(googleId());if(JSON.stringify(fresh.db)!==JSON.stringify(bridge.db()))throw Error('Google Sheet changed since preview. Refresh and validate again.');
     const temp=await bulkUpsertSheet(changes,fresh.db);
-    await appendAudit('BULK IMPORT','ALL',lastBulk?.source||'BULK',changes.length+' validated operations');
+    try{await appendAudit('BULK IMPORT','ALL',lastBulk?.source||'BULK',changes.length+' validated operations')}catch(auditError){msg('Records saved, but audit logging was unavailable: '+auditError.message,true)}
     bridge.setDb(temp);await updateWorkspaceMeta({count:Object.values(temp).reduce((a,x)=>a+x.length,0)});
    }else{await saveLocal(preview.draft);bridge.setDb(preview.draft)}
    msg('Bulk upload completed: '+(preview.counts.create+preview.counts.update)+' source records');preview=null;lastBulk=null;previewContext=null;bridge.render();
