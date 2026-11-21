@@ -24,6 +24,7 @@ function refreshIdentity(){
  const u=currentUser(),top=document.getElementById('user-identity');
  if(top)top.innerHTML=u?'<strong>'+esc(u.displayName)+'</strong> <small>'+esc(roleLabels(u.roles))+'</small>':'Not signed in';
  document.querySelectorAll('[data-admin-only]').forEach(n=>n.hidden=!isAdmin());
+ document.querySelectorAll('[data-lan-admin-only]').forEach(n=>n.hidden=!(isAdmin()&&isLan()));
  document.querySelectorAll('[data-page]').forEach(n=>{if(n.dataset.page==='users'||n.dataset.page==='databases'||n.dataset.page==='dbdetails')n.hidden=!isAdmin();if(n.dataset.page==='bulk')n.hidden=!accessible('bulk')});
 }
 function authMarkup(){
