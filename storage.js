@@ -4,12 +4,17 @@ const GOOGLE='https://sheets.googleapis.com/v4/spreadsheets';
 let token='';
 let activeSpreadsheet='';
 let snapshot=emptyDb();
+let liveFileHandle=null;
 function openStore(){return new Promise((resolve,reject)=>{const r=indexedDB.open(DBNAME,1);r.onupgradeneeded=()=>r.result.createObjectStore('state');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
 async function storeGet(key){const db=await openStore();return new Promise((resolve,reject)=>{const tx=db.transaction('state','readonly'),r=tx.objectStore('state').get(key);r.onsuccess=()=>{db.close();resolve(r.result)};r.onerror=()=>{db.close();reject(r.error)}})}
 async function storeSet(key,value){const db=await openStore();return new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put(value,key);tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>{db.close();reject(tx.error)}})}
 export async function loadLocal(){const val=await storeGet('database');snapshot=val||emptyDb();return structuredClone(snapshot)}
-export async function saveLocal(data){snapshot=structuredClone(data);await storeSet('database',snapshot)}
+export async function saveLocal(data){const clean=structuredClone(data);if(liveFileHandle){if(!window.XLSX)throw Error('Excel library unavailable for live XLSX save');const w=sheetToWorkbook(clean);const bytes=XLSX.write(w,{bookType:'xlsx',type:'array'});const out=await liveFileHandle.createWritable();await out.write(bytes);await out.close()}snapshot=clean;await storeSet('database',snapshot)}
 export function localSnapshot(){return structuredClone(snapshot)}
+export const linkedFileName=()=>liveFileHandle?.name||'';
+export function unlinkExcel(){liveFileHandle=null}
+export async function openLinkedExcel(){if(!window.showOpenFilePicker)throw Error('Live Excel linking requires Chrome/Edge in a secure context (HTTPS or localhost)');const [handle]=await window.showOpenFilePicker({types:[{description:'Excel workbook',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}],multiple:false});const f=await handle.getFile();const data=await importExcel(f);liveFileHandle=handle;return data}
+export async function saveAsLinkedExcel(data){if(!window.showSaveFilePicker)throw Error('File System Access requires Chrome/Edge on HTTPS or localhost');const handle=await window.showSaveFilePicker({suggestedName:'FlowStock_Live_Database.xlsx',types:[{description:'Excel workbook',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});liveFileHandle=handle;await saveLocal(data);return handle.name}
 export const connected=()=>!!activeSpreadsheet;
 export const googleId=()=>activeSpreadsheet;
 const authError=()=>new Error('Google session expired. Select Connect again.');
@@ -17,7 +22,7 @@ export async function authorize(clientId){if(!window.google?.accounts?.oauth2)th
 async function api(path,opt={}){if(!token)throw authError();const response=await fetch(path,{...opt,headers:{Authorization:'Bearer '+token,...(opt.body?{'Content-Type':'application/json'}:{}),...(opt.headers||{})}});let result={};try{result=await response.json()}catch{}if(!response.ok){if(response.status===401)token='';throw Error(result.error?.message||('Google Sheets HTTP '+response.status))}return result}
 const q=x=>"'"+x.replaceAll("'","''")+"'";
 const col=i=>{let n=i+1,s='';while(n){s=String.fromCharCode(65+(n-1)%26)+s;n=Math.floor((n-1)/26)}return s};
-function sheetInput(row,schema){const record={};schema.fields.forEach(f=>{const v=row?.[f.col];record[f.key]=f.type==='number'?(v===''||v===undefined?'':Number(v)):v===null||v===undefined?'':String(v)});return record}
+function sheetInput(row,schema){const record={};schema.fields.forEach(f=>{const v=row?.[f.col];if(f.type==='number')record[f.key]=v===''||v===undefined?'':Number(v);else if(f.type==='date'){if(typeof v==='number'){const d=new Date(Date.UTC(1899,11,30)+Math.floor(v)*86400000);record[f.key]=d.toISOString().slice(0,10)}else{const value=String(v||'');const dt=new Date(value);record[f.key]=/^\d{4}-\d{2}-\d{2}$/.test(value)?value:Number.isNaN(dt.getTime())?'':dt.toISOString().slice(0,10)}}else record[f.key]=v===null||v===undefined?'':String(v)});return record}
 export function sheetIdFromUrl(value){const m=String(value||'').match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);return m?m[1]:String(value||'').trim()}
 export async function connectSheet(id){id=sheetIdFromUrl(id);if(!id)throw Error('Enter a spreadsheet URL or ID');const meta=await api(GOOGLE+'/'+encodeURIComponent(id)+'?fields=spreadsheetId,properties(title),sheets(properties(title))');const tabs=new Set((meta.sheets||[]).map(s=>s.properties.title));const missing=TABLES.filter(t=>!tabs.has(t));if(missing.length)throw Error('Missing required tabs: '+missing.join(', ')+'. Create a fresh database, or use the V1 source workbook.');
 const ranges=TABLES.map(t=>q(t)+'!A6:'+col(SCHEMAS[t].headers.length-1)+'2000');const data=await api(GOOGLE+'/'+encodeURIComponent(id)+'/values:batchGet?ranges='+ranges.map(encodeURIComponent).join('&ranges=')+'&valueRenderOption=UNFORMATTED_VALUE');
