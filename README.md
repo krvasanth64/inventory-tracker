@@ -1,8 +1,8 @@
-# FlowStock — Trading Operations Frontend (V1.5)
+# FlowStock — Trading Operations Frontend (V1.6)
 
 A standalone, responsive **HTML + CSS + JavaScript** application for Buyer/Supplier orders, warehouse stock, reservations, and export dispatch tracking. Includes dual database modes, modal data entry, search and CSV reporting.
 
-**Latest update:** V1.5 — one popup for a document and all its item rows, grouped Stock In and adjustment rows, and validated bulk edit/delete. The simplified V1.4 navigation remains unchanged.
+**Latest update:** V1.6 — shared LAN server, centralized login, one active editor, admin-only database location/details, and access from other PCs through the host IP address. Previous single-popup and bulk operations remain available.
 
 **Live repository:** https://github.com/krvasanth64/inventory-tracker
 
@@ -235,3 +235,103 @@ For Google Sheets, the app checks for changes before writing and issues grouped 
     git pull --ff-only origin main
     npm test
     py -m http.server 5173
+
+## V1.6 – Shared LAN database and one active editor
+
+The previously supplied Python HTTP server serves static files only. It does **not** make IndexedDB data shared across PCs.
+
+To use one shared database with simultaneous viewers, start the new **Node.js LAN host** on one reliable Windows PC or server. This Node process alone reads and writes the shared JSON database. Other users connect with their browser; they must not open or edit the JSON directly.
+
+### Server PC (Windows PowerShell)
+
+Prerequisite: Node.js 22+ (the same Node used for `npm test`). Run from the cloned source folder:
+
+```powershell
+cd "D:\PK Pack - Projects\Inventory Tracker\inventory-tracker"
+git pull --ff-only origin main
+npm test
+
+# Optional: choose your central database folder before launching.
+# Use a local folder or an accessible UNC network share.
+$env:FLOWSTOCK_DATA_DIR = "D:\FlowStock-Shared-Database"
+# Alternatively: $env:FLOWSTOCK_DATA_DIR = "\\FileServer\Operations\FlowStock"
+
+$env:FLOWSTOCK_PORT = "5173"
+npm start
+```
+
+With no `FLOWSTOCK_DATA_DIR`, the database is stored under `lan-data` in the cloned repository. This directory and TLS secrets are ignored by Git.
+
+A Windows inbound firewall rule may be needed. Run **PowerShell as Administrator** on the host PC:
+
+```powershell
+New-NetFirewallRule -DisplayName "FlowStock LAN" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -Profile Private -RemoteAddress LocalSubnet
+```
+
+Find the host PC's IPv4 address with `ipconfig`. On another PC on the same network, use its address, for example `http://192.168.1.25:5173/` (replace with the real host address). The host PC must remain running and reachable. Prefer a reserved/static host IP.
+
+**Use `npm start`, not `py -m http.server 5173`, for shared mode.** Python's static server cannot provide centralized users, database location metadata or write locking.
+
+### Shared folder storage
+
+Set `FLOWSTOCK_DATA_DIR` to a **server-accessible** local path or an accessible UNC folder, e.g. `\\FileServer\Operations\FlowStock`. The Node process must have read/write permission. When running as a Windows service, use UNC rather than a drive letter mapped only in a logged-in user's session.
+
+The host creates:
+- `database.json`: shared source records for all 14 tables
+- `database.previous.json`: previous snapshot before a successful write
+- `metadata.json`: name, creation time, last update and revision
+- `users.json`: centrally managed user records and salted password hashes
+- `audit.log`: server-side write audit entries
+
+**Only one FlowStock Node server process** must use a given folder. A second independent host pointing to the same file is unsupported and risks data corruption. Ordinary users should have no direct write access to the storage share.
+
+### Login, permissions and edit lock
+
+First LAN startup creates the default `admin` / `admin` account and requires an immediate password change. The administrator then creates Viewer, Data Entry, Master Manager, and Stock Posting users in the User Management screen. These accounts are stored on the server and work from other PCs.
+
+- All authenticated users with read permission can inspect the same live database.
+- Only one Data Entry, Master Manager or Admin user can hold **Take Edit Access** at a time.
+- The server checks the exclusive 90-second renewable lease on **every write**, including imports, single-item changes, and bulk edits.
+- The current editor can select **Release Edit Access** to allow another editor.
+- The administrator can **Force Release Edit Lock** under **More Tools → Database Details** if an editor has disconnected.
+- The server checks role restrictions and database revision, so a stale browser cannot overwrite newer committed data.
+- Editing rights are controlled by the server, not by hiding browser buttons alone.
+
+The editor lease is released on logout or expires if the browser stops renewing it. Other connected users remain view-only while an editor holds it.
+
+### Admin-only Database Details
+
+From **More Tools → Database Details**, admins can see:
+- Shared database name
+- Real server storage folder and complete database file path
+- Account file and audit log path
+- Created and last-updated timestamps
+- Revision and source record count
+- Active editor and connected user names
+- Server LAN access URLs
+- Rename database action and editor force-release control
+
+The database path does **not** appear in ordinary users' API responses or screens. Normal users see only the database name, source, and update time.
+
+### Browser installation / HTTPS
+
+Opening `http://HOST-IP:5173/` from Chrome or Edge on another PC works as a standard LAN website. Browser-installed PWA functionality generally requires **HTTPS with a trusted certificate**, except for localhost development. V1.6 includes an installable-app manifest and a network-only service worker (no API or stock data is cached offline).
+
+If you have a valid certificate and private key for an internal DNS hostname, set these optional environment variables before `npm start`:
+
+```powershell
+$env:FLOWSTOCK_TLS_CERT = "C:\certs\flowstock-cert.pem"
+$env:FLOWSTOCK_TLS_KEY  = "C:\certs\flowstock-key.pem"
+```
+
+Use an HTTPS hostname covered by that certificate, e.g. `https://flowstock.office.local:5173/`. An IP address can be used over HTTPS only when the certificate explicitly covers that IP and is trusted on all client PCs.
+
+**Important:** HTTP over LAN does not encrypt usernames/passwords or business data. Enable HTTPS before using the system for production credentials or sensitive business records. Restrict network access with firewalls, back up the shared data folder, and keep the host PC awake. The database is not designed for simultaneous direct editing through Excel or SMB clients.
+
+### Existing local or Excel data
+
+A new LAN database starts empty. Use an admin account with **Take Edit Access** and the existing **Bulk Upload Center** to import a complete workbook or source tables. Export a backup of your previous local/browser database before migration. Never assume browser IndexedDB data has automatically moved to the server. Use a test folder first.
+
+### Automated tests
+
+`npm test` includes the LAN host's HTTP integration test, which checks server login, first-password change, read-only viewers, the exclusive editor lease, master-role authorization, stale revision rejection, file persistence and admin-only path access.
