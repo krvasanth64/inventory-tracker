@@ -1,6 +1,8 @@
-# FlowStock — Trading Operations Frontend (V1.2)
+# FlowStock — Trading Operations Frontend (V1.3)
 
 A standalone, responsive **HTML + CSS + JavaScript** application for Buyer/Supplier orders, warehouse stock, reservations, and export dispatch tracking. Includes dual database modes, modal data entry, search and CSV reporting.
+
+**Latest update:** V1.3 — bulk upload center, database selection, account management and permission-based operations.
 
 **Live repository:** https://github.com/krvasanth64/inventory-tracker
 
@@ -93,3 +95,71 @@ Run `npm test` with Node.js 22+. GitHub Actions runs the core tests and syntax c
 - `storage.js` — IndexedDB, XLSX, live local file and Google Sheets adapters
 - `app.js` — navigation, data-entry forms, interactive reports, sample data
 - `tests/core.test.js` — regression tests
+
+
+## V1.3: Sign in and role-based interface
+
+On **first run**, use the bootstrap account:
+
+- **Username:** \`admin\`
+- **Password:** \`admin\`
+
+The application **requires changing this password immediately** to a password of at least 10 characters. New users are created only by an administrator and must also change their initial password on first login. The password hashes use salted PBKDF2 (SHA-256), stored in this browser's IndexedDB.
+
+Go to **User Management** as admin to add, edit, disable or remove users. Roles can be **multi-selected**:
+
+| Role | Allowed operations |
+| --- | --- |
+| View Only | Dashboard, tables, reports and exports |
+| Data Entry | Transaction drafts: Buyer/Supplier POs, receipts, allocations, loading, adjustments |
+| Stock Posting / Dispatch | Confirm posted receipts, adjustments and dispatched containers when combined with Data Entry |
+| Master Manager | Create/edit/import Buyers, Suppliers, Items, UOM mappings and Warehouses |
+| Administrator | All operations, user setup, database management and connection settings |
+
+The frontend hides or blocks unauthorized CRUD and bulk operations. A confirmed stock posting needs the Stock Posting role, separately from Data Entry. Master Manager and Data Entry can be combined, as can any other non-admin roles. Admin includes every permission.
+
+**Security boundary:** Browser-local credentials, users and permission checks are **not a secure multi-device authentication system**. Any technically capable user with access to browser developer tools or to the actual workbook can bypass browser-side rules. User accounts are *not synchronized across browsers, devices or Google accounts*. Sharing a Google Sheet with Editor access bypasses app permissions. For real employees, deploy a trusted server-side identity and authorization service before treating these controls as secure. In the current Google Sheets connector, only app admins can initiate writes; Google Sheets itself controls underlying access.
+
+## V1.3: Bulk upload for every source table
+
+Every module has **Template** and (for authorized roles) **Bulk upload** actions. The sidebar includes a **Bulk Upload Center** with:
+
+- All Masters, All Orders, Inward/Adjustments, Outward/Dispatch or one specific source table.
+- Download a workbook containing matching **row 6 headers**, data-entry notes and a replaceable demonstration row.
+- Upload a completed XLSX/CSV; map columns by matching header names, even if columns are reordered.
+- Preview every row and receive errors before committing.
+- Duplicate policy: **Skip existing** (default) or **Update existing** (subject to posting/locking rules).
+- Preflight validation for linked IDs, SKU-specific UOM factors, quantities, negative stock, duplicate IDs, overallocations, status, and assigned user roles.
+- Historical confirmed containers are staged before loading lines and confirmed last to preserve stock accuracy.
+- Cloud writes use batched Sheets API requests rather than one request per spreadsheet cell or record. There is a 1,500-row/file limit and a 16 MB limit.
+
+**Suggested upload sequence:** Buyer/Supplier/Warehouse/Item/UOM masters → PO headers → PO lines → Goods Receipts → Adjustments → Reservations → Containers → Dispatch lines. Use the grouped all-tables template for a single end-to-end import.
+
+The upload preview is best-effort in Google Sheets mode; the app detects changes since preview, but Google Sheets does not provide an atomic inventory transaction system. Interrupted multi-batch uploads require reconciliation. Do not allow direct workbook editing by untrusted users.
+
+## V1.3: Database Manager and workspaces
+
+The admin-only **Database Manager** is designed to prevent confusion between testing, live data and previous workbooks.
+
+- **New blank database** — clean tables.
+- **Copy current data** — a separate local snapshot.
+- **Fresh demonstration dataset** — separate test workspace.
+- **Load previous Excel file** — imports legacy workbook source tabs into a **new local workspace**, never overwriting the currently selected one.
+- **Registered Google Sheet** — reconnect an existing previously registered spreadsheet via Google OAuth.
+- Database catalog with name, type, source, local creation date, last app update date, and source-record count.
+- Table catalog with per-module record counts, **View**, **Template**, and **Upload** controls.
+- An admin-only **quick workspace selector** appears in the application header.
+- An active database name, source and app-observed timestamps remain displayed for all users.
+
+**Time semantics:** Local database Created and Updated values reflect this app's local registry. Google Sheets Created/Updated are the time the app first registered the source and last handled an update. They are *not* the original Google Drive document created/modified timestamps; the configured Sheets-only OAuth scope does not provide those.
+
+Workspaces and user accounts are local to one browser. You must explicitly export/import or migrate data when moving to another machine. A connected Google Sheet can be shared for data visibility, but a production multi-user auth gateway is still required for secure role enforcement.
+
+## Browser and deployment notes
+
+- Install via a static server or GitHub Pages; never open ES modules from \`file://\`.
+- Google OAuth requires an authorized HTTPS origin, consent screen and Sheets API.
+- Live local file access and direct auto-save require Chrome/Edge on HTTPS or localhost.
+- Opening an old report/formula workbook for live editing is intentionally blocked: import it as a snapshot and save a **new** linked workbook.
+- Never add passwords, OAuth client secrets or production data to this public GitHub repository.
+- Run \`npm test\`; GitHub Actions checks all JavaScript modules plus the core and bulk tests.
