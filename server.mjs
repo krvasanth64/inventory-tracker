@@ -143,6 +143,7 @@ async function handleApi(req,res,url){
   await setPassword(s.user,next);s.user.mustChangePassword=false;await atomic(usersPath,users);return reply(res,200,{user:publicUser(s.user)});
  });
  if(s.user.mustChangePassword)throw error(403,'Change initial password before accessing data');
+ if(url.pathname==='/api/status'&&req.method==='GET')return reply(res,200,{revision:meta.revision,updatedAt:meta.updatedAt,name:meta.name,lease:leasePublic(s)});
  if(url.pathname==='/api/lease'&&req.method==='GET')return reply(res,200,leasePublic(s));
  if(url.pathname==='/api/lease'&&req.method==='POST')return locked(async()=>{
   const {action}=await body(req);clearStale();
