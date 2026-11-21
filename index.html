@@ -12,7 +12,8 @@
   <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <div class="shell">
+  <div id="auth-wall" class="auth-wall"></div>
+  <div id="main-shell" class="shell app-locked">
     <aside id="sidebar" class="sidebar">
       <div class="brand"><span class="brand-mark">F</span><span><strong>FlowStock</strong><small>Trading operations</small></span></div>
       <div class="workspace-label">WORKSPACE</div>
@@ -35,16 +36,22 @@
         <button class="nav-item" data-page="SUPPLIERS"><span class="nav-icon">◇</span>Suppliers</button>
         <button class="nav-item" data-page="WAREHOUSES"><span class="nav-icon">⌂</span>Warehouses</button>
         <div class="nav-heading">ADMINISTRATION</div>
+        <button class="nav-item" data-page="bulk"><span class="nav-icon">⇧</span>Bulk Upload Center</button>
+        <button class="nav-item" data-page="databases" data-admin-only><span class="nav-icon">▤</span>Database Manager</button>
+        <button class="nav-item" data-page="users" data-admin-only><span class="nav-icon">◉</span>User Management</button>
+        <button class="nav-item" data-page="account"><span class="nav-icon">♙</span>My Account</button>
         <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span>Database & Settings</button>
         <button class="nav-item" data-page="checks"><span class="nav-icon">✓</span>Data Checks</button>
       </nav>
-      <div class="sidebar-footer"><span class="status-dot"></span><span id="sidebar-mode">Local workspace</span><span class="version">V1.2</span></div>
+      <div class="sidebar-footer"><span class="status-dot"></span><span id="sidebar-mode">Local workspace</span><span class="version">V1.3</span></div>
     </aside>
     <div id="shade" class="shade"></div>
     <div class="main">
       <header class="topbar">
         <div class="top-left"><button class="icon-button mobile-menu" id="mobile-menu" aria-label="Menu">☰</button><div class="breadcrumbs">Operations <span>/</span> <b id="crumb">Overview</b></div></div>
         <div class="top-actions">
+          <div class="user-identity" id="user-identity"></div>
+          <div id="active-database-label" class="active-db-label" title="Active database and timestamps">Loading database…</div>
           <span id="connection" class="connection"><span class="status-dot"></span>Local database</span>
           <button class="btn btn-ghost" id="refresh">↻ <span>Refresh</span></button>
           <button class="btn btn-primary" id="quick-add">+ New entry</button>
