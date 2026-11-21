@@ -16,13 +16,13 @@ function msg(x,error=false){bridge?.notify(x,error)}
 function canWrite(t,bulk=false){if(connected()&&!isAdmin())return false;return may(bulk?'bulk':'write',t)}
 export {canWrite};
 export function chooseBulkTable(t){if(!SCHEMAS[t])throw Error('Unknown module');group=t;preview=null;lastBulk=null}
-export function accessible(p){if(!currentUser())return false;if(p==='users'||p==='databases')return isAdmin();if(p==='bulk')return true;return may('read')}
+export function accessible(p){if(!currentUser())return false;if(p==='users'||p==='databases')return isAdmin();if(p==='bulk')return TABLES.some(t=>canWrite(t,true));return may('read')}
 export function initializeAdminBridge(impl){bridge=impl;setupEvents();return initializeAccounts().then(()=>{paintAuth();refreshIdentity()})}
 function refreshIdentity(){
  const u=currentUser(),top=document.getElementById('user-identity');
  if(top)top.innerHTML=u?'<strong>'+esc(u.displayName)+'</strong> <small>'+esc(roleLabels(u.roles))+'</small>':'Not signed in';
  document.querySelectorAll('[data-admin-only]').forEach(n=>n.hidden=!isAdmin());
- document.querySelectorAll('[data-page]').forEach(n=>{if(n.dataset.page==='users'||n.dataset.page==='databases')n.hidden=!isAdmin()});
+ document.querySelectorAll('[data-page]').forEach(n=>{if(n.dataset.page==='users'||n.dataset.page==='databases')n.hidden=!isAdmin();if(n.dataset.page==='bulk')n.hidden=!accessible('bulk')});
 }
 function authMarkup(){
  const u=currentUser();
@@ -62,7 +62,7 @@ async function drawWorkspaces(){
  const active=await activeWorkspaceInfo();
  mount.innerHTML='<div class="notice warning">Workspace list and timestamps are saved in this browser. Google Sheets original creation/modified times are not available using the current Sheets-only OAuth scope. A Google connection requires re-authentication after reload.</div><div class="settings-grid"><section class="settings-card"><h3>Create database</h3><form id="workspace-form" class="login-form"><label>Database name<input name="name" maxlength="90" placeholder="e.g. Live Inventory 2027" required></label><label>Start with<select name="seed"><option value="blank">Blank database</option><option value="clone">Copy currently loaded data</option><option value="sample">Fresh demonstration dataset</option></select></label><button class="btn btn-primary" type="submit">Create database</button></form><hr><h3>Load a previous Excel file</h3><p>Import a workbook as a new, separate database. Your current workspace remains unchanged.</p><div class="settings-actions">'+btn('Choose Excel → New database','workspace-import','btn-primary')+'</div><input id="workspace-import-input" hidden type="file" accept=".xlsx,.xls,.ods"></section><section class="settings-card"><h3>Current database</h3><p><strong>'+esc(active?.name||'Unselected')+'</strong></p><p>Source: '+esc(active?.source||'Unknown')+'<br>Created: '+esc(date(active?.createdAt))+'<br>Last app update: '+esc(date(active?.updatedAt))+'<br>Records: '+esc(active?.count??0)+'</p></section></div><section class="panel"><div class="panel-header"><div><h3>Database connections</h3><div class="panel-desc">Select a local database or reconnect to a registered Google spreadsheet</div></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th>Source / Connection</th><th>Created (local)</th><th>Last updated (app)</th><th>Rows</th><th>Action</th></tr></thead><tbody>'+all.map(w=>'<tr><td><strong>'+esc(w.name)+'</strong><div class="footnote">'+(w.active?'ACTIVE DATABASE':esc(w.id))+'</div></td><td>'+esc(w.source)+(w.kind==='google'?'<div class="footnote">Sheet ID: '+esc(w.sheetId)+'</div>':'')+'</td><td>'+esc(date(w.createdAt))+'</td><td>'+esc(date(w.updatedAt))+'</td><td>'+esc(w.count)+'</td><td>'+btn(w.active?'Active':'Select', 'workspace-select:'+w.id)+(w.kind==='google'&&w.sheetId?' '+btn('Open Sheet','workspace-open:'+w.id):'')+(w.id!=='default'&&!w.active?' '+btn('Remove','workspace-delete:'+w.id,'btn-danger'):'')+'</td></tr>').join('')+'</tbody></table></div></section>';
  const live=bridge.db();
- mount.insertAdjacentHTML('beforeend','<section class="panel"><div class="panel-header"><div><h3>Database tables</h3><div class="panel-desc">Browse any table, download its import template or upload records</div></div><span class="tag blue">'+TABLES.length+' modules</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Module</th><th>Table name</th><th>Record count</th><th>Controls</th></tr></thead><tbody>'+TABLES.map(t=>'<tr><td><strong>'+esc(SCHEMAS[t].title)+'</strong></td><td>'+esc(t)+'</td><td>'+esc(live[t]?.length||0)+'</td><td>'+btn('View','table-view:'+t)+' '+btn('Template','table-template:'+t)+' '+btn('Upload','table-import:'+t)+'</td></tr>').join('')+'</tbody></table></div></section>');
+ mount.insertAdjacentHTML('beforeend','<section class="panel"><div class="panel-header"><div><h3>Database tables</h3><div class="panel-desc">Browse any table, download its import template or upload records</div></div><span class="tag blue">'+TABLES.length+' modules</span></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Module</th><th>Table name</th><th>Record count</th><th>Controls</th></tr></thead><tbody>'+TABLES.map(t=>'<tr><td><strong>'+esc(SCHEMAS[t].title)+'</strong></td><td>'+esc(t)+'</td><td>'+esc(live[t]?.length||0)+'</td><td>'+btn('View','table-view:'+t)+' '+btn('Template','table-template:'+t)+(canWrite(t,true)?' '+btn('Upload','table-import:'+t):'')+'</td></tr>').join('')+'</tbody></table></div></section>');
 }
 export async function refreshAdminPage(page){
  refreshIdentity();
@@ -139,7 +139,7 @@ function setupEvents(){
   if(e.target.id==='bulk-upload-input'){
    const file=e.target.files?.[0];if(!file)return;
    try{lastBulk=await parseBulkFile(file,group);
-    preview=previewBulk(lastBulk,bridge.db(),{mode,allowedTable:t=>canWrite(t,true)});
+    preview=previewBulk(lastBulk,bridge.db(),{mode,allowedTable:t=>canWrite(t,true),allowedRecord:(t,r)=>{const post=(['RECEIPTS','ADJUSTMENTS'].includes(t)&&r.posting==='Posted')||(t==='CONTAINERS'&&['Dispatched','Arrived'].includes(r.status));return !post||may('post',t)}});
     document.getElementById('bulk-preview').innerHTML=previewHtml(preview);
     msg('Preview ready: '+preview.results.length+' rows');
    }catch(err){msg(err.message,true)}finally{e.target.value=''}
