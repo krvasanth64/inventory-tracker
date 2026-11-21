@@ -4,7 +4,7 @@
  * Customer-facing planning numbers distinguish buyer demand, physically available stock,
  * inbound supplier balance and reservations already committed to other buyers.
  */
-import {SCHEMAS,byId,summarize,N} from './core.js';
+import {SCHEMAS,byId,summarize,N,baseQty} from './core.js';
 
 const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&gt;','>':'&gt;','"':'&quot;',"'" :'&#39;'}[c]));
 const n=(v,d=0)=>Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:d});
@@ -110,7 +110,7 @@ export function renderOutward(db,state={}){
  });
  const allocationRows=db.ALLOCATIONS.filter(x=>x.control!=='Released').slice(0,30).map(a=>{
   const l=s.buyerLines.find(x=>x.id===a.buyerLine),reserved=l?s.deliveries.filter(x=>x.allocation===a.id&&x.posted).reduce((n,x)=>n+x.base,0):0;
-  const factor= l? Number(a.qty||0)*((l.sku&&db.UOM_MAP.find(x=>x.sku===l.sku&&x.uom===a.uom)?.factor)||1):0;
+  const factor=l?(baseQty(db,l.sku,a.uom,a.qty)||0):0;
   return '<tr>'+td(h(a.id))+td(l?buyer(db,l.buyer):'—')+td(h(l?.po||''))+td(h(l?.sku||''))+td(n(factor,2)+' '+uom(db,l?.sku),'num')+td(n(Math.max(0,factor-reserved),2)+' '+uom(db,l?.sku),'num')+td(button('Load Item','new:DISPATCH'))+'</tr>';
  });
  return intro('Stock Out & Dispatch','Reserve by Buyer PO, enter manual container loading, then confirm dispatch. Planning does not reduce stock.',button('+ Plan Container','new:CONTAINERS',true)+button('Add Loading Item','new:DISPATCH')+button('Reserve Stock','new:ALLOCATIONS'))+
@@ -130,12 +130,31 @@ export function renderLoading(db,id){
  '<div class="notice">Goods are deducted from stock and Buyer outstanding only after container status is Dispatched. Do not use Loaded as a shipping confirmation.</div>'+
  panel('Loading Items',rows.length+' item lines',table(['Dispatch Line','Allocation','Buyer','SKU','Loaded Qty','Status','Action'],rows));
 }
-export function renderManagement(db){
+export function renderManagement(db,{admin=false,bulk=false}={}){
  return intro('Master Data & Settings','Administrative lists and advanced registers stay here so daily users see fewer menus.',button('Items','go:ITEMS',true)+button('Buyers','go:BUYERS')+button('Suppliers','go:SUPPLIERS'))+
  '<div class="manage-grid">'+
  [['Masters',[['Items','ITEMS'],['Buyers','BUYERS'],['Suppliers','SUPPLIERS'],['Warehouses','WAREHOUSES'],['UOM Conversions','UOM_MAP']]],
  ['Order Details',[['Buyer PO Lines','BUYER_LINES'],['Supplier PO Lines','SUPPLIER_LINES'],['Supplier Purchases','SUPPLIER_PO']]],
  ['Inventory Records',[['Receipts','RECEIPTS'],['Adjustments','ADJUSTMENTS'],['Reservations','ALLOCATIONS'],['Loading Lines','DISPATCH'],['Containers','CONTAINERS']]],
- ['Administration',[['Bulk Upload','bulk'],['Data Checks','checks'],['Database Manager','databases'],['Users & Roles','users'],['Database Connection','settings'],['My Account','account']]]].map(([heading,links])=>'<section class="settings-card"><h3>'+heading+'</h3><div class="manage-links">'+links.map(([label,page])=>'<button class="quick-link" data-action="go:'+page+'">'+label+' <span>↗</span></button>').join('')+'</div></section>').join('')+'</div>';
+ ['Administration',[...(bulk?[['Bulk Upload','bulk']]:[]),['Data Checks','checks'],...(admin?[['Database Manager','databases'],['Users & Roles','users'],['Database Connection','settings']]:[]),['My Account','account']]]].map(([heading,links])=>'<section class="settings-card"><h3>'+heading+'</h3><div class="manage-links">'+links.map(([label,page])=>'<button class="quick-link" data-action="go:'+page+'">'+label+' <span>↗</span></button>').join('')+'</div></section>').join('')+'</div>';
+}
+export function renderFlowHome(db){
+ const {s,active,byBuyer}=workflows(db);
+ const late=active.filter(x=>x.due&&new Date(x.due)<new Date());
+ const demandSkus=new Set(s.stockRows.filter(x=>x.shortage>0&&x.demand>0).map(x=>x.sku));
+ const partial=active.filter(x=>x.shipped>0);
+ const next=byBuyer.slice(0,7).map(x=>
+ '<tr>'+td('<strong>'+buyer(db,x.buyer)+'</strong>')+td(x.orders.size+' open')+td(x.lines+' lines')+td(x.late?tag(x.late+' overdue'):tag('On time'))+td(button('Open orders','open-buyer:'+encodeURIComponent(x.buyer)))+'</tr>');
+ const openOrders=new Set(active.map(x=>x.po)).size;
+ return '<div class="dashboard-greeting"><div class="eyebrow">WORKSPACE OVERVIEW</div><h2>What needs attention today?</h2><p>Track Buyer requirements, stock received and goods sent. The outstanding report updates from confirmed dispatches.</p></div>'+
+ '<div class="kpis workflow-kpis">'+stat('Buyer Orders Open',openOrders,'Orders with items pending')+stat('Items Pending',active.length,'PO item lines, not mixed quantities')+stat('Overdue Items',late.length,'Required date passed')+stat('Shortage Items',demandSkus.size,'Unique SKUs to source')+'</div>'+
+ '<div class="daily-grid">'+
+ '<button class="daily-action" data-action="go:orders"><span class="daily-number">01</span><strong>Buyer Orders</strong><small>Enter POs and track ordered items</small><span class="daily-arrow">→</span></button>'+
+ '<button class="daily-action" data-action="go:requirements"><span class="daily-number">02</span><strong>Requirements & Pending</strong><small>Review outstanding and reserve available stock</small><span class="daily-arrow">→</span></button>'+
+ '<button class="daily-action" data-action="go:inward"><span class="daily-number">03</span><strong>Stock In</strong><small>Record receipts from Suppliers</small><span class="daily-arrow">→</span></button>'+
+ '<button class="daily-action" data-action="go:outward"><span class="daily-number">04</span><strong>Stock Out</strong><small>Plan containers and confirm dispatch</small><span class="daily-arrow">→</span></button>'+
+ '</div>'+
+ panel('Buyer follow-up','Buyers with open purchase orders, prioritized by overdue item lines',table(['Buyer','Open Orders','Pending Items','Priority','Action'],next,'No Buyer orders pending'),button('All requirements','go:requirements'))+
+ '<div class="notice">Quantities are measured in each item’s base UOM. The dashboard counts lines and SKUs rather than adding together PCS, KG, MTR and cartons.</div>';
 }
 export const FLOW_LABELS={dashboard:'Overview',orders:'Buyer Orders',requirements:'Requirements & Pending',inward:'Stock In',outward:'Stock Out',stock:'Stock Balance',manage:'More Tools'};
