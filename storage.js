@@ -88,7 +88,7 @@ export function disconnect(){activeSpreadsheet='';token=''}
 export async function restoreLocalWorkspace(){disconnect();const wanted=await storeGet('last-local-workspace')||'default';const all=await listWorkspaces();const found=all.find(x=>x.id===wanted&&x.kind==='local');await activateWorkspace(found?.id||'default');return loadLocal()}
 export async function lastLocalSnapshot(){const id=await storeGet('last-local-workspace')||'default';return await storeGet(id==='default'?'database':'database:'+id)||emptyDb()}
 async function nextRow(t,db){let biggest=6;for(const x of db[t])biggest=Math.max(biggest,Number(x._row)||6);return biggest+1}
-export async function putSheet(t,row,db,editing){if(!activeSpreadsheet)throw Error('Google Sheets not connected');const s=SCHEMAS[t];const rowIndex=editing?Number(row._row):await nextRow(t,db);if(!rowIndex||rowIndex<7)throw Error('Invalid database row');const values=s.fields.map(f=>({range:q(t)+'!'+col(f.col)+(rowIndex),values:[[row[f.key]===undefined?'':row[f.key]]]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data:values})});await updateWorkspaceMeta();return {...row,_row:rowIndex}}
+export async function putSheet(t,row,db,editing){if(!activeSpreadsheet)throw Error('Google Sheets not connected');const s=SCHEMAS[t];const rowIndex=editing?Number(row._row):await nextRow(t,db);if(!rowIndex||rowIndex<7)throw Error('Invalid database row');const values=s.fields.map(f=>({range:q(t)+'!'+col(f.col)+(rowIndex),values:[[row[f.key]===undefined?'':row[f.key]]]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data:values})});await updateWorkspaceMeta();return {...row,_row:rowIndex}}
 // Batch source-field writes (not report formulas). Validated before calling this function.
 // Rows are allocated in memory in the exact import order; FINALIZE operations reuse their original row.
 export async function bulkUpsertSheet(changes,initial,onProgress=()=>{}){
@@ -108,7 +108,7 @@ export async function bulkUpsertSheet(changes,initial,onProgress=()=>{}){
    if(previous)next[t]=next[t].map(r=>String(r[schema.pk])===String(id)?row:r);
    else next[t].push(row);
   }
-  await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data})});
+  await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});
   onProgress(Math.min(start+STEP,changes.length),changes.length);
  }
  await updateWorkspaceMeta({count:records(next)});
@@ -125,7 +125,7 @@ export async function uploadLocalSnapshotToGoogle(cloudDb){
  const data=[];
  for(const t of TABLES){const schema=SCHEMAS[t],records=local[t]||[];if(!records.length)continue;for(const field of schema.fields){const vals=records.map(row=>[row[field.key]??'']);data.push({range:q(t)+'!'+col(field.col)+'7:'+col(field.col)+(6+records.length),values:vals})}}
  // Existing sheets must be blank. We never overwrite other users' records.
- await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data})});
+ await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});
  await appendAudit('IMPORT','ALL','LOCAL-SNAPSHOT',count+' records imported');
  return connectSheet(activeSpreadsheet);
 }
