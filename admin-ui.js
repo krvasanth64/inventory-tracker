@@ -1,4 +1,4 @@
-import {SCHEMAS,TABLES,emptyDb} from './core.js';
+import {SCHEMAS,TABLES,emptyDb,byId} from './core.js';
 import {ROLE_DEFINITIONS,MASTER_TABLES,initializeAccounts,currentUser,authenticate,changeOwnPassword,logout,isAdmin,may,listUsers,upsertUser,removeUser,roleLabels} from './admin.js';
 import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,loadLocal,saveLocal,updateWorkspaceMeta,putSheet,appendAudit,unlinkExcel} from './storage.js';
 import {downloadTableTemplate,parseBulkFile,previewBulk,importGroups,groupTitle,importOrder} from './bulk.js';
@@ -74,6 +74,7 @@ async function handleAdminAction(action){
  if(action==='bulk-clear'){preview=null;lastBulk=null;bridge.render();return}
  if(action==='bulk-commit'){
   if(!preview?.canApply)return msg('Resolve preview errors before upload.',true);
+  if(!lastBulk)return msg('No upload source is loaded.',true);
   const changes=preview.results.filter(x=>['CREATE','UPDATE'].includes(x.status));
   if(!changes.length)return msg('Nothing to upload.',true);
   if(!confirm('Write '+changes.length+' validated records to '+(connected()?'the Google Sheet':'the local database')+'?'))return;
@@ -95,17 +96,17 @@ async function handleAdminAction(action){
   return;
  }
  if(action==='user-new'){userEditing='';await drawUsers();return}
- if(action.startsWith('user-edit:')){userEditing=action.slice(10);await drawUsers();return}
- if(action.startsWith('user-remove:')){const username=action.slice(12);if(!confirm('Remove user '+username+'?'))return;try{await removeUser(username);userEditing='';await drawUsers();msg('User removed')}catch(e){msg(e.message,true)}return}
+ if(action.startsWith('user-edit:')){userEditing=action.slice('user-edit:'.length);await drawUsers();return}
+ if(action.startsWith('user-remove:')){const username=action.slice('user-remove:'.length);if(!confirm('Remove user '+username+'?'))return;try{await removeUser(username);userEditing='';await drawUsers();msg('User removed')}catch(e){msg(e.message,true)}return}
  if(action.startsWith('workspace-select:')){
   if(!isAdmin())return msg('Administrator only',true);
-  const id=action.slice(17),list=await listWorkspaces(),w=list.find(x=>x.id===id);if(!w)return;
+  const id=action.slice('workspace-select:'.length),list=await listWorkspaces(),w=list.find(x=>x.id===id);if(!w)return;
   if(w.kind==='google'){if(connected()&&googleId()===w.sheetId)return msg('This Google Sheet is already connected');localStorage.setItem('flowstock-last-sheet',w.sheetId);bridge.setPage('settings');return msg('Authorize Google and select Sign in & connect to load this database.')}
   if(!confirm('Switch active database to '+w.name+'? Unsaved forms will be lost.'))return;
   disconnect();unlinkExcel();await activateWorkspace(id);const next=await loadLocal();bridge.setDb(next);bridge.setPage('dashboard');msg('Active database: '+w.name);return
  }
- if(action.startsWith('workspace-open:')){const id=action.slice(15),list=await listWorkspaces(),w=list.find(x=>x.id===id);if(w?.sheetId)window.open('https://docs.google.com/spreadsheets/d/'+encodeURIComponent(w.sheetId)+'/edit','_blank','noopener');return}
- if(action.startsWith('workspace-delete:')){const id=action.slice(17);if(!confirm('Remove this database registration and its local data? Export backups first.'))return;try{await deleteWorkspace(id);await drawWorkspaces();msg('Workspace removed')}catch(e){msg(e.message,true)}return}
+ if(action.startsWith('workspace-open:')){const id=action.slice('workspace-open:'.length),list=await listWorkspaces(),w=list.find(x=>x.id===id);if(w?.sheetId)window.open('https://docs.google.com/spreadsheets/d/'+encodeURIComponent(w.sheetId)+'/edit','_blank','noopener');return}
+ if(action.startsWith('workspace-delete:')){const id=action.slice('workspace-delete:'.length);if(!confirm('Remove this database registration and its local data? Export backups first.'))return;try{await deleteWorkspace(id);await drawWorkspaces();msg('Workspace removed')}catch(e){msg(e.message,true)}return}
 }
 function setupEvents(){
  document.addEventListener('click',e=>{
