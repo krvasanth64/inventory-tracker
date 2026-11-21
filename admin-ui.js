@@ -1,6 +1,6 @@
 import {SCHEMAS,TABLES,emptyDb,byId} from './core.js';
 import {ROLE_DEFINITIONS,MASTER_TABLES,initializeAccounts,currentUser,authenticate,changeOwnPassword,logout,isAdmin,may,listUsers,upsertUser,removeUser,roleLabels} from './admin.js';
-import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,restoreLocalWorkspace,loadLocal,saveLocal,importExcel,updateWorkspaceMeta,putSheet,appendAudit,unlinkExcel} from './storage.js';
+import {listWorkspaces,activeWorkspaceInfo,createWorkspace,activateWorkspace,renameWorkspace,deleteWorkspace,connected,googleId,connectSheet,disconnect,restoreLocalWorkspace,loadLocal,saveLocal,importExcel,updateWorkspaceMeta,putSheet,bulkUpsertSheet,appendAudit,unlinkExcel} from './storage.js';
 import {downloadTableTemplate,parseBulkFile,previewBulk,importGroups,groupTitle,importOrder} from './bulk.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
 const date=v=>v?new Date(v).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
@@ -90,13 +90,8 @@ async function handleAdminAction(action){
    bridge.setPending(true);
    if(connected()){if(!isAdmin())throw Error('Google Sheets posting is restricted to admin until a trusted multi-user backend is installed');
     const fresh=await connectSheet(googleId());if(JSON.stringify(fresh.db)!==JSON.stringify(bridge.db()))throw Error('Google Sheet changed since preview. Refresh and validate again.');
-    let temp=structuredClone(fresh.db);let n=0;
-    for(const x of changes){const s=SCHEMAS[x.table];const old=byId(temp,x.table,x.record[s.pk]),written=await putSheet(x.table,x.record,temp,!!old);
-      if(old)temp[x.table]=temp[x.table].map(r=>r[s.pk]===x.record[s.pk]?written:r);
-      else temp[x.table].push(written);
-      n++;
-    }
-    await appendAudit('BULK IMPORT','ALL',lastBulk?.source||'BULK',n+' rows');
+    const temp=await bulkUpsertSheet(changes,fresh.db);
+    await appendAudit('BULK IMPORT','ALL',lastBulk?.source||'BULK',changes.length+' validated operations');
     bridge.setDb(temp);await updateWorkspaceMeta({count:Object.values(temp).reduce((a,x)=>a+x.length,0)});
    }else{await saveLocal(preview.draft);bridge.setDb(preview.draft)}
    msg('Bulk upload completed: '+(preview.counts.create+preview.counts.update)+' source records');preview=null;lastBulk=null;bridge.render();
