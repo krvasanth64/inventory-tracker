@@ -21,6 +21,15 @@ const pill=status=>{const s=String(status||'—'),c=/^completed$|^posted$|^arriv
 function labelOf(t,r){if(!r)return '';return r.name||r.number||r.sku||r.id||''}
 function displayRef(t,id){return escapeHtml(labelOf(t,byId(db,t,id))||id||'—')}
 function contentPanel(title,subtitle,body,action=''){return '<section class="panel"><div class="panel-header"><div><h3>'+title+'</h3><div class="panel-desc">'+subtitle+'</div></div>'+action+'</div>'+body+'</section>'}
+function primaryEntry(){
+ if(SCHEMAS[page])return page;
+ return {dashboard:'BUYER_PO',orders:'BUYER_PO',orderdetail:'BUYER_LINES',requirements:'ALLOCATIONS',inward:'RECEIPTS',outward:'CONTAINERS',loadingdetail:'DISPATCH'}[page]||null;
+}
+function quickDefaults(t){
+ if(t==='BUYER_LINES'&&page==='orderdetail')return {po:workflowState.orderId};
+ if(t==='DISPATCH'&&page==='loadingdetail')return {shipment:workflowState.containerId};
+ return {};
+}
 function render(){
  if(!currentUser()||currentUser().mustChangePassword)return;
  const title=tableTitles[page]||SCHEMAS[page]?.title||{bulk:'Bulk Upload Center',users:'User Management',databases:'Database Manager',account:'My Account'}[page]||page;
@@ -28,7 +37,10 @@ function render(){
  $('sidebar-mode').textContent=connected()?'Google Sheets workspace':linkedFileName()?'Linked Excel: '+linkedFileName():'Local workspace';
  $('connection').className='connection'+(connected()?' cloud':'');$('connection').innerHTML='<span class="status-dot"></span>'+(connected()?'Google Sheets connected':linkedFileName()?'Live Excel linked':'Local database');
  $('page-actions').innerHTML=SCHEMAS[page]?(canWrite(page)?btn('+ New '+(SCHEMAS[page].title),'add','btn-primary'):'')+btn('Template','template-table:'+page)+(canWrite(page,true)?btn('Bulk upload','bulk-page:'+page):'')+btn('Export CSV','csv'):page==='stock'||page==='outstanding'||page==='requirements'?btn('Export CSV','csv'):'';
- $('quick-add').disabled=pending||!canWrite('BUYER_PO');
+ const quick=primaryEntry(),quickAllowed=!!quick&&canWrite(quick);$('quick-add').hidden=!quickAllowed;
+ $('quick-add').disabled=pending||!quickAllowed;
+ const quickLabels={BUYER_PO:'New Buyer Order',BUYER_LINES:'Add Order Item',ALLOCATIONS:'Reserve Stock',RECEIPTS:'Record Stock In',CONTAINERS:'Plan Container',DISPATCH:'Add Loading Item'};
+ $('quick-add').textContent='+ '+(quickLabels[quick]||SCHEMAS[quick]?.title||'New Entry');
  activeWorkspaceInfo().then(w=>{const a=$('active-database-label');if(a&&w){const localDate=v=>v?new Date(v).toLocaleString('en-GB'):'—';a.innerHTML='<strong>'+escapeHtml(w.name)+'</strong> · '+escapeHtml(w.source)+'<br><small>Created '+escapeHtml(localDate(w.createdAt))+' · Updated '+escapeHtml(localDate(w.updatedAt))+'</small>';a.title='Database: '+w.name+' | Source: '+w.source+' | Created: '+localDate(w.createdAt)+' | Last updated: '+localDate(w.updatedAt)}}).catch(()=>{});
  let html='';if(page==='dashboard')html=renderFlowHome(db);else if(page==='orders')html=renderOrderDesk(db,workflowState);else if(page==='orderdetail')html=renderOrderDetail(db,workflowState.orderId);else if(page==='requirements')html=renderRequirements(db,workflowState);else if(page==='inward')html=renderInward(db,workflowState);else if(page==='outward')html=renderOutward(db,workflowState);else if(page==='loadingdetail')html=renderLoading(db,workflowState.containerId);else if(page==='manage')html=renderManagement(db,{admin:isAdmin(),bulk:accessible('bulk')});else if(page==='outstanding')html=outstanding();else if(page==='stock')html=stockPage();else if(page==='settings')html=settingsPage();else if(page==='checks')html=checksPage();else if(SCHEMAS[page])html=directory(page);else if(['bulk','users','databases','account'].includes(page))html=renderAdminPage(page);$('app-content').innerHTML=html;
  refreshAdminPage(page).catch(err=>notify(err.message,true));
@@ -112,7 +124,7 @@ async function processAction(action){if(!currentUser())return notify('Sign in fi
  if(action.startsWith('new-receipt:'))return openForm('RECEIPTS',null,{supplierLine:decodeURIComponent(action.slice('new-receipt:'.length))});
  if(action.startsWith('new-container-line:'))return openForm('DISPATCH',null,{shipment:decodeURIComponent(action.slice('new-container-line:'.length))});
  if(action.startsWith('new:'))return openForm(action.slice(4));
- if(action==='add'){if(SCHEMAS[page])openForm(page);else openForm('BUYER_PO');return}if(action.startsWith('go:'))return setPage(action.slice(3));if(action.startsWith('edit:')){const a=action.split(':');return openForm(a[1],decodeURIComponent(a.slice(2).join(':')))}if(action.startsWith('delete:')){const a=action.split(':');return removeRecord(a[1],a.slice(2).join(':'))}if(action==='csv'||action==='dashboard-csv')return exportCsv();if(action==='next'){pageNumber++;return render()}if(action==='previous'){pageNumber=Math.max(1,pageNumber-1);return render()}
+ if(action==='add'){const t=primaryEntry();if(!t)return;return openForm(t,null,quickDefaults(t))}if(action.startsWith('go:'))return setPage(action.slice(3));if(action.startsWith('edit:')){const a=action.split(':');return openForm(a[1],decodeURIComponent(a.slice(2).join(':')))}if(action.startsWith('delete:')){const a=action.split(':');return removeRecord(a[1],a.slice(2).join(':'))}if(action==='csv'||action==='dashboard-csv')return exportCsv();if(action==='next'){pageNumber++;return render()}if(action==='previous'){pageNumber=Math.max(1,pageNumber-1);return render()}
 if(action==='import')return $('import-file').click();
 if(action==='open-linked'){if(connected())return notify('Disconnect Google Sheets before opening a local workbook.',true);if(!confirm('Open a live Excel file and replace the active local workspace?'))return;try{db=await openLinkedExcel();notify('Live Excel linked: '+linkedFileName());render()}catch(e){notify(e.message,true)}return}
 if(action==='save-as-linked'){if(connected())return notify('Disconnect Google Sheets before linking a local file.',true);try{const name=await saveAsLinkedExcel(db);notify('Auto-save enabled: '+name);render()}catch(e){notify(e.message,true)}return}
