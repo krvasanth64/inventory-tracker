@@ -1,3 +1,4 @@
+import {isLan,lanLoad,lanReplace,lanMetadata} from './lan.js';
 import {SCHEMAS,TABLES,emptyDb} from './core.js';
 const DBNAME='flowstock-local-v1';
 const GOOGLE='https://sheets.googleapis.com/v4/spreadsheets';
@@ -16,6 +17,7 @@ const stamp=()=>new Date().toISOString();
 const records=db=>TABLES.reduce((n,t)=>n+(db[t]?.length||0),0);
 function safeId(){return 'db-'+crypto.randomUUID()}
 export async function listWorkspaces(){
+ if(isLan()){const m=lanMetadata();return [{id:'lan-shared',kind:'lan',name:m?.name||'Shared LAN Database',source:'LAN Server',createdAt:m?.createdAt||'',updatedAt:m?.updatedAt||'',count:m?.count||0,active:true}]}
  let list=await storeGet('workspaces');
  if(!list){const now=stamp(),legacy=await storeGet('database')||emptyDb();list=[{id:'default',name:'Local Workspace',source:'Local browser',kind:'local',createdAt:now,updatedAt:now,count:records(legacy)}];await storeSet('workspaces',list);await storeSet('active-workspace','default')}
  activeWorkspace=await storeGet('active-workspace')||'default';
@@ -27,7 +29,7 @@ async function changeWorkspace(id,extra={}){
  Object.assign(p,extra);await storeSet('workspaces',all.map(({active,...x})=>x));activeWorkspace=id;await storeSet('active-workspace',id);
  return {...p,active:true}
 }
-export async function createWorkspace(name,source='Local browser',data=null){
+export async function createWorkspace(name,source='Local browser',data=null){if(isLan())throw Error('LAN database is created and located by the server administrator');
  name=String(name||'').trim();if(name.length<3)throw Error('Database name requires at least 3 characters');
  const catalog=await listWorkspaces();if(catalog.some(x=>x.name.toLowerCase()===name.toLowerCase()))throw Error('Database name already exists');
  const id=safeId(),now=stamp(),value=data||emptyDb();
@@ -35,7 +37,7 @@ export async function createWorkspace(name,source='Local browser',data=null){
  await storeSet('workspaces',catalog.map(({active,...x})=>x));await storeSet('database:'+id,structuredClone(value));
  return catalog.at(-1)
 }
-export async function activateWorkspace(id){
+export async function activateWorkspace(id){if(isLan())throw Error('LAN database selection is managed on the server');
  const all=await listWorkspaces(),found=all.find(x=>x.id===id);if(!found)throw Error('Workspace not found');
  if(found.kind==='google')return found;
  activeWorkspace=id;await storeSet('active-workspace',id);await storeSet('last-local-workspace',id);unlinkExcel();
@@ -65,8 +67,8 @@ export async function deleteWorkspace(id){
  if(w.kind==='local'){await storeSet('database:'+id,null)}
  await storeSet('workspaces',all.filter(x=>x.id!==id).map(({active,...v})=>v))
 }
-export async function loadLocal(){const catalog=await listWorkspaces();const active=catalog.find(x=>x.active);if(active?.kind==='google'&&!activeSpreadsheet){const last=await storeGet('last-local-workspace')||'default';const local=catalog.find(x=>x.id===last&&x.kind==='local');await activateWorkspace(local?.id||'default')}const val=await storeGet(activeWorkspace==='default'?'database':'database:'+activeWorkspace);snapshot=val||emptyDb();return structuredClone(snapshot)}
-export async function saveLocal(data){const clean=structuredClone(data);if(liveFileHandle){if(!window.XLSX)throw Error('Excel library unavailable for live XLSX save');const previous=await liveFileHandle.getFile();if(liveFileFingerprint&&fingerprint(previous)!==liveFileFingerprint)throw Error('The Excel file changed outside FlowStock. Reopen the file before saving to avoid overwriting another edit.');const w=sheetToWorkbook(clean);const bytes=XLSX.write(w,{bookType:'xlsx',type:'array'});const out=await liveFileHandle.createWritable();await out.write(bytes);await out.close();liveFileFingerprint=fingerprint(await liveFileHandle.getFile())}snapshot=clean;await storeSet(activeWorkspace==='default'?'database':'database:'+activeWorkspace,snapshot);await updateWorkspaceMeta({count:records(clean),source:liveFileHandle?'Linked Excel ('+liveFileHandle.name+')':'Local browser'})}
+export async function loadLocal(){if(isLan())return lanLoad();const catalog=await listWorkspaces();const active=catalog.find(x=>x.active);if(active?.kind==='google'&&!activeSpreadsheet){const last=await storeGet('last-local-workspace')||'default';const local=catalog.find(x=>x.id===last&&x.kind==='local');await activateWorkspace(local?.id||'default')}const val=await storeGet(activeWorkspace==='default'?'database':'database:'+activeWorkspace);snapshot=val||emptyDb();return structuredClone(snapshot)}
+export async function saveLocal(data){if(isLan())return lanReplace(data,'FlowStock data update');const clean=structuredClone(data);if(liveFileHandle){if(!window.XLSX)throw Error('Excel library unavailable for live XLSX save');const previous=await liveFileHandle.getFile();if(liveFileFingerprint&&fingerprint(previous)!==liveFileFingerprint)throw Error('The Excel file changed outside FlowStock. Reopen the file before saving to avoid overwriting another edit.');const w=sheetToWorkbook(clean);const bytes=XLSX.write(w,{bookType:'xlsx',type:'array'});const out=await liveFileHandle.createWritable();await out.write(bytes);await out.close();liveFileFingerprint=fingerprint(await liveFileHandle.getFile())}snapshot=clean;await storeSet(activeWorkspace==='default'?'database':'database:'+activeWorkspace,snapshot);await updateWorkspaceMeta({count:records(clean),source:liveFileHandle?'Linked Excel ('+liveFileHandle.name+')':'Local browser'})}
 export function localSnapshot(){return structuredClone(snapshot)}
 export const linkedFileName=()=>liveFileHandle?.name||'';
 export function unlinkExcel(){liveFileHandle=null;liveFileFingerprint=null}
