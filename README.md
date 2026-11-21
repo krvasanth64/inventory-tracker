@@ -1,8 +1,8 @@
-# FlowStock — Trading Operations Frontend (V1.3)
+# FlowStock — Trading Operations Frontend (V1.4)
 
 A standalone, responsive **HTML + CSS + JavaScript** application for Buyer/Supplier orders, warehouse stock, reservations, and export dispatch tracking. Includes dual database modes, modal data entry, search and CSV reporting.
 
-**Latest update:** V1.3 — bulk upload center, database selection, account management and permission-based operations.
+**Latest update:** V1.4 — simpler daily workflow, Buyer-wise outstanding and purchasing requirements, guided PO items, inward and outward operations. V1.3 bulk uploads, database selection and user permissions remain available under More Tools.
 
 **Live repository:** https://github.com/krvasanth64/inventory-tracker
 
@@ -163,3 +163,43 @@ Workspaces and user accounts are local to one browser. You must explicitly expor
 - Opening an old report/formula workbook for live editing is intentionally blocked: import it as a snapshot and save a **new** linked workbook.
 - Never add passwords, OAuth client secrets or production data to this public GitHub repository.
 - Run \`npm test\`; GitHub Actions checks all JavaScript modules plus the core and bulk tests.
+
+
+## V1.4: Simplified daily navigation
+
+For everyday end users, the sidebar contains only:
+
+| Menu label | What users do |
+| --- | --- |
+| **Overview** | See open Buyer orders, pending items, overdue follow-ups, and shortage SKUs |
+| **Buyer Orders** | Create a Buyer PO, add item lines, see Buyer-wise order status and partial fulfilment |
+| **Requirements & Pending** | Filter by Buyer, see outstanding items, free stock and reserved stock, and reserve stock for an order |
+| **Stock In** | Record goods received against Supplier purchase orders and check supplier-pending quantities |
+| **Stock Out** | Reserve stock, create containers, enter manual loading, and confirm dispatch |
+| **Stock Balance** | Check physical, reserved, available and incoming stock by item |
+| **More Tools** | Masters, UOM conversion, raw registers, bulk imports, admin and data checks |
+
+The header offers a **context-sensitive action button** so users never need to choose a raw transaction DocType during ordinary work. For example, Buyer Orders shows **New Buyer Order**, Stock In shows **Record Stock In**, and Stock Out shows **Plan Container**.
+
+### Guided operations
+
+1. Open Buyer Orders → **New Buyer Order**. Save the header; the **Add PO Item** form opens with its PO already selected.
+2. Open Requirements & Pending → filter Buyer → **Reserve** for a specific outstanding order line. The selected line and base UOM are prefilled.
+3. Review **Items to Purchase** on the same page; its shortage is calculated **once per SKU across all Buyers**. **Create Purchase** carries the preferred Supplier and SKU into a new Supplier purchase order and item line.
+4. Open Stock In → a pending Supplier purchase line → **Record Inward**. The Supplier PO line is prefilled.
+5. Open Stock Out → reserve as needed → plan a container → add loading lines against allocations → change container status to **Dispatched** when shipment is confirmed.
+
+### Stock and outstanding rules
+
+- Buyer pending = ordered base units − cancelled base units − **confirmed dispatched** base units.
+- Reservations are commitments to an order line; **planned or loaded** containers do not deduct physical stock.
+- Stock In counts only **accepted, posted** receipts.
+- Stock Out counts only **Dispatched / Arrived** containers.
+- Available stock = physical stock − open reservations.
+- Purchase requirement (per SKU, all Buyers combined) = max(0, outstanding Buyer demand + min stock − physical stock − active Supplier pending).
+- Never add quantities across unrelated UOMs. PCS, KG, MTR, CTN and other conversions remain SKU-specific.
+- Free stock shown on several Buyer order lines is **shared** stock, not a guaranteed allocation per line; confirmation uses reservation-level validation.
+
+Daily workflow pages are thin presentation layers over the existing validated records. Existing database tables and Excel/Google Sheets data layouts remain unchanged in this version. Advanced registers and import templates are still available from More Tools.
+
+Run \`npm test\` to exercise existing transaction rules and the new Buyer-wise workflow tests.
