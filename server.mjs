@@ -119,7 +119,7 @@ function reply(res,status,data,extra={}){const payload=JSON.stringify(data);res.
 function originOK(req){if(['GET','HEAD','OPTIONS'].includes(req.method))return;const origin=req.headers.origin;if(origin&&origin!==connectedUrl(req))throw error(403,'Cross-origin write blocked');const content=req.headers['content-type']||'';if(!content.startsWith('application/json'))throw error(415,'JSON content type required')}
 async function body(req){let size=0,buffers=[];for await(const chunk of req){size+=chunk.length;if(size>6*1024*1024)throw error(413,'Request body too large');buffers.push(chunk)}try{return JSON.parse(Buffer.concat(buffers).toString('utf8'))}catch{throw error(400,'Invalid JSON')}}
 function leasePublic(s){clearStale();return {active:!!lease,holder:lease?.username||'',mine:!!s&&lease?.session===s.id,expiresAt:lease?new Date(lease.exp).toISOString():null}}
-function endpoints(){return Object.values(os.networkInterfaces()).flat().filter(a=>a.family==='IPv4'&&!a.internal).map(a=>'http://'+a.address+':'+port)}
+function endpoints(){return Object.values(os.networkInterfaces()).flat().filter(a=>a.family==='IPv4'&&!a.internal).map(a=>(tls?'https://':'http://')+a.address+':'+port)}
 async function handleApi(req,res,url){
  if(url.pathname==='/api/mode'&&req.method==='GET')return reply(res,200,{mode:'lan',version:'1.6.0'});
  if(url.pathname==='/api/login'&&req.method==='POST'){
