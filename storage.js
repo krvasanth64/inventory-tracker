@@ -114,6 +114,39 @@ export async function bulkUpsertSheet(changes,initial,onProgress=()=>{}){
  await updateWorkspaceMeta({count:records(next)});
  return next;
 }
+// One logical operation set. Google Sheets has no transactional commit or lock; the
+// preflight re-read reduces stale writes but cannot prevent concurrent changes.
+export async function applySheetChangeSet(operations,baseDb){
+ if(!activeSpreadsheet)throw Error('No Google Sheet connected');
+ if(!operations.length)return structuredClone(baseDb);
+ const fresh=await connectSheet(activeSpreadsheet);
+ const current=fresh.db;
+ if(JSON.stringify(current)!==JSON.stringify(baseDb))throw Error('Google Sheet changed since it was loaded. Refresh and try again.');
+ const next=structuredClone(current),ranges=[],limit=150;
+ if(operations.length>limit)throw Error('Maximum 150 changes per save');
+ for(const op of operations){
+  const schema=SCHEMAS[op.table],pk=schema?.pk;
+  if(!schema)throw Error('Unknown source table '+op.table);
+  const id=op.kind==='delete'?op.id:op.record?.[pk];
+  const old=next[op.table].find(x=>String(x[pk])===String(id));
+  if(op.kind==='delete'){
+   if(!old?._row)throw Error('Missing database row to delete: '+id);
+   for(const f of schema.fields)ranges.push({range:q(op.table)+'!'+col(f.col)+old._row,values:[['']]});
+   next[op.table]=next[op.table].filter(x=>String(x[pk])!==String(id));continue;
+  }
+  const rowIndex=old?Number(old._row):await nextRow(op.table,next);
+  if(!Number.isInteger(rowIndex)||rowIndex<7||rowIndex>2000)throw Error('Table row limit reached for '+op.table);
+  const saved={...(old||{}),...op.record,_row:rowIndex};
+  for(const f of schema.fields)ranges.push({range:q(op.table)+'!'+col(f.col)+rowIndex,values:[[saved[f.key]??'']]});
+  if(old)next[op.table]=next[op.table].map(x=>String(x[pk])===String(id)?saved:x);
+  else next[op.table].push(saved);
+ }
+ // Commit the entire user action in a single values:batchUpdate request.
+ // Sheets does not guarantee transaction atomicity across concurrent writers.
+ await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data:ranges})});
+ await updateWorkspaceMeta({count:records(next)});
+ return next;
+}
 export async function clearSheet(t,row){if(!activeSpreadsheet)throw Error('No Google connection');if(!row._row)throw Error('Missing row number');const data=SCHEMAS[t].fields.map(f=>({range:q(t)+'!'+col(f.col)+row._row,values:[['']]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});await updateWorkspaceMeta()}
 export async function createSheet(){if(!token)throw authError();const sheets=[...TABLES,'AUDIT_LOG'].map(title=>({properties:{title,gridProperties:{rowCount:2000,columnCount:Math.max(18,(SCHEMAS[title]?.headers.length||6)+2),frozenRowCount:6,hideGridlines:true}}}));const created=await api(GOOGLE,{method:'POST',body:JSON.stringify({properties:{title:'FlowStock Trading Operations Database'},sheets})});const data=TABLES.map(t=>({range:q(t)+'!A1:'+col(SCHEMAS[t].headers.length-1)+'6',values:[[SCHEMAS[t].title+' | data records'],[],[],['INPUT TABLE - Use FlowStock web application'],[],SCHEMAS[t].headers]}));data.push({range:"'AUDIT_LOG'!A6:F6",values:[['Timestamp','Action','Table','Record ID','User','Details']]});await api(GOOGLE+'/'+created.spreadsheetId+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});const metas=await api(GOOGLE+'/'+created.spreadsheetId+'?fields=sheets(properties(sheetId,title))');const requests=metas.sheets.map(s=>({repeatCell:{range:{sheetId:s.properties.sheetId,startRowIndex:5,endRowIndex:6},cell:{userEnteredFormat:{backgroundColor:{red:.93,green:.95,blue:.98},textFormat:{bold:true},verticalAlignment:'MIDDLE'}},fields:'userEnteredFormat'}}));await api(GOOGLE+'/'+created.spreadsheetId+':batchUpdate',{method:'POST',body:JSON.stringify({requests})});return connectSheet(created.spreadsheetId)}
 export async function uploadLocalSnapshotToGoogle(cloudDb){
