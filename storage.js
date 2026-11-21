@@ -89,6 +89,31 @@ export async function restoreLocalWorkspace(){disconnect();const wanted=await st
 export async function lastLocalSnapshot(){const id=await storeGet('last-local-workspace')||'default';return await storeGet(id==='default'?'database':'database:'+id)||emptyDb()}
 async function nextRow(t,db){let biggest=6;for(const x of db[t])biggest=Math.max(biggest,Number(x._row)||6);return biggest+1}
 export async function putSheet(t,row,db,editing){if(!activeSpreadsheet)throw Error('Google Sheets not connected');const s=SCHEMAS[t];const rowIndex=editing?Number(row._row):await nextRow(t,db);if(!rowIndex||rowIndex<7)throw Error('Invalid database row');const values=s.fields.map(f=>({range:q(t)+'!'+col(f.col)+(rowIndex),values:[[row[f.key]===undefined?'':row[f.key]]]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data:values})});await updateWorkspaceMeta();return {...row,_row:rowIndex}}
+// Batch source-field writes (not report formulas). Validated before calling this function.
+// Rows are allocated in memory in the exact import order; FINALIZE operations reuse their original row.
+export async function bulkUpsertSheet(changes,initial,onProgress=()=>{}){
+ if(!activeSpreadsheet)throw Error('Google spreadsheet not connected');
+ const next=structuredClone(initial);const STEP=45;
+ for(let start=0;start<changes.length;start+=STEP){
+  const slice=changes.slice(start,start+STEP),data=[];
+  for(const action of slice){
+   const t=action.table,schema=SCHEMAS[t],id=action.record[schema.pk];
+   const previous=next[t].find(x=>String(x[schema.pk])===String(id));
+   const rowNum=previous?Number(previous._row):await nextRow(t,next);
+   if(!Number.isInteger(rowNum)||rowNum<7||rowNum>2000)throw Error('Sheet row limit reached for '+t+'; extend the sheet before importing');
+   const row={...(previous||{}),...action.record,_row:rowNum};
+   for(const field of schema.fields){
+    data.push({range:q(t)+'!'+col(field.col)+rowNum,values:[[row[field.key]??'']]});
+   }
+   if(previous)next[t]=next[t].map(r=>String(r[schema.pk])===String(id)?row:r);
+   else next[t].push(row);
+  }
+  await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data})});
+  onProgress(Math.min(start+STEP,changes.length),changes.length);
+ }
+ await updateWorkspaceMeta({count:records(next)});
+ return next;
+}
 export async function clearSheet(t,row){if(!activeSpreadsheet)throw Error('No Google connection');if(!row._row)throw Error('Missing row number');const data=SCHEMAS[t].fields.map(f=>({range:q(t)+'!'+col(f.col)+row._row,values:[['']]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});await updateWorkspaceMeta()}
 export async function createSheet(){if(!token)throw authError();const sheets=[...TABLES,'AUDIT_LOG'].map(title=>({properties:{title,gridProperties:{rowCount:2000,columnCount:Math.max(18,(SCHEMAS[title]?.headers.length||6)+2),frozenRowCount:6,hideGridlines:true}}}));const created=await api(GOOGLE,{method:'POST',body:JSON.stringify({properties:{title:'FlowStock Trading Operations Database'},sheets})});const data=TABLES.map(t=>({range:q(t)+'!A1:'+col(SCHEMAS[t].headers.length-1)+'6',values:[[SCHEMAS[t].title+' | data records'],[],[],['INPUT TABLE - Use FlowStock web application'],[],SCHEMAS[t].headers]}));data.push({range:"'AUDIT_LOG'!A6:F6",values:[['Timestamp','Action','Table','Record ID','User','Details']]});await api(GOOGLE+'/'+created.spreadsheetId+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});const metas=await api(GOOGLE+'/'+created.spreadsheetId+'?fields=sheets(properties(sheetId,title))');const requests=metas.sheets.map(s=>({repeatCell:{range:{sheetId:s.properties.sheetId,startRowIndex:5,endRowIndex:6},cell:{userEnteredFormat:{backgroundColor:{red:.93,green:.95,blue:.98},textFormat:{bold:true},verticalAlignment:'MIDDLE'}},fields:'userEnteredFormat'}}));await api(GOOGLE+'/'+created.spreadsheetId+':batchUpdate',{method:'POST',body:JSON.stringify({requests})});return connectSheet(created.spreadsheetId)}
 export async function uploadLocalSnapshotToGoogle(cloudDb){
