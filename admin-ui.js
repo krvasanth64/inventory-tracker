@@ -175,7 +175,7 @@ function setupEvents(){
   try{
    if(form.id==='lan-rename-form'){if(!isAdmin())throw Error('Administrator required');await lanRename(String(fd.get('name')));await drawLanDetails();await bridge.refresh();msg('Database display name saved')}
    else if(form.id==='login-form'){
-    await authenticate(fd.get('username'),fd.get('password'));paintAuth();refreshIdentity();if(isLan())await bridge.refresh();else bridge.render();msg('Signed in');
+    await authenticate(fd.get('username'),fd.get('password'));paintAuth();refreshIdentity();if(isLan()&&!currentUser()?.mustChangePassword)await bridge.refresh();else bridge.render();msg('Signed in');
    }else if(form.id==='password-form'){
     if(fd.get('newPassword')!==fd.get('confirm'))throw Error('Passwords do not match');
     await changeOwnPassword(String(fd.get('current')),String(fd.get('newPassword')));
