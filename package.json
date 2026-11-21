@@ -1,0 +1,10 @@
+{
+  "name": "flowstock-trading-operations",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "serve": "npx --yes http-server . -p 5173 -c-1"
+  }
+}
