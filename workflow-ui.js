@@ -133,13 +133,13 @@ export function renderLoading(db,id){
  '<div class="notice">Goods are deducted from stock and Buyer outstanding only after container status is Dispatched. Do not use Loaded as a shipping confirmation.</div>'+
  panel('Loading Items',rows.length+' item lines',table(['Dispatch Line','Allocation','Buyer','SKU','Loaded Qty','Status','Action'],rows));
 }
-export function renderManagement(db,{admin=false,bulk=false}={}){
+export function renderManagement(db,{admin=false,bulk=false,lan=false}={}){
  return intro('Master Data & Settings','Administrative lists and advanced registers stay here so daily users see fewer menus.',button('Items','go:ITEMS',true)+button('Buyers','go:BUYERS')+button('Suppliers','go:SUPPLIERS'))+
  '<div class="manage-grid">'+
  [['Masters',[['Items','ITEMS'],['Buyers','BUYERS'],['Suppliers','SUPPLIERS'],['Warehouses','WAREHOUSES'],['UOM Conversions','UOM_MAP']]],
  ['Order Details',[['Buyer PO Lines','BUYER_LINES'],['Supplier PO Lines','SUPPLIER_LINES'],['Supplier Purchases','SUPPLIER_PO']]],
  ['Inventory Records',[['Receipts','RECEIPTS'],['Adjustments','ADJUSTMENTS'],['Reservations','ALLOCATIONS'],['Loading Lines','DISPATCH'],['Containers','CONTAINERS']]],
- ['Administration',[...(bulk?[['Bulk Upload','bulk']]:[]),['Data Checks','checks'],...(admin?[['Database Manager','databases'],['Users & Roles','users'],['Database Connection','settings']]:[]),['My Account','account']]]].map(([heading,links])=>'<section class="settings-card"><h3>'+heading+'</h3><div class="manage-links">'+links.map(([label,page])=>'<button class="quick-link" data-action="go:'+page+'">'+label+' <span>↗</span></button>').join('')+'</div></section>').join('')+'</div>';
+ ['Administration',[...(bulk?[['Bulk Upload','bulk']]:[]),['Data Checks','checks'],...(admin?(lan?[['Database Details','dbdetails'],['Users & Roles','users']]:[['Database Manager','databases'],['Users & Roles','users'],['Database Connection','settings']]):[]),['My Account','account']]]].map(([heading,links])=>'<section class="settings-card"><h3>'+heading+'</h3><div class="manage-links">'+links.map(([label,page])=>'<button class="quick-link" data-action="go:'+page+'">'+label+' <span>↗</span></button>').join('')+'</div></section>').join('')+'</div>';
 }
 export function renderFlowHome(db){
  const {s,active,byBuyer}=workflows(db);
