@@ -1,8 +1,8 @@
-# FlowStock — Trading Operations Frontend (V1.4)
+# FlowStock — Trading Operations Frontend (V1.5)
 
 A standalone, responsive **HTML + CSS + JavaScript** application for Buyer/Supplier orders, warehouse stock, reservations, and export dispatch tracking. Includes dual database modes, modal data entry, search and CSV reporting.
 
-**Latest update:** V1.4 — simpler daily workflow, Buyer-wise outstanding and purchasing requirements, guided PO items, inward and outward operations. V1.3 bulk uploads, database selection and user permissions remain available under More Tools.
+**Latest update:** V1.5 — one popup for a document and all its item rows, grouped Stock In and adjustment rows, and validated bulk edit/delete. The simplified V1.4 navigation remains unchanged.
 
 **Live repository:** https://github.com/krvasanth64/inventory-tracker
 
@@ -203,3 +203,35 @@ The header offers a **context-sensitive action button** so users never need to c
 Daily workflow pages are thin presentation layers over the existing validated records. Existing database tables and Excel/Google Sheets data layouts remain unchanged in this version. Advanced registers and import templates are still available from More Tools.
 
 Run \`npm test\` to exercise existing transaction rules and the new Buyer-wise workflow tests.
+
+## V1.5 – Single-popup documents and line items
+
+Open each document once, edit the main fields and all related item rows inside the same popup, then save once.
+
+| Document | Related rows included in the same popup |
+| --- | --- |
+| Buyer Purchase Order | Buyer PO items, ordered quantity, UOM |
+| Supplier Purchase Order | Supplier PO items, quantity, UOM |
+| Item master | UOM conversions (such as CTN = 24 PCS) |
+| Container | Loading items and allocation references |
+| Stock In | Multiple receipts against Supplier PO lines |
+| Stock Adjustments | Multiple stock correction rows |
+| Reservations | Multiple Buyer PO allocation rows |
+
+Use **Add Row** and **Remove** inside the same popup, not a separate line-item screen. The existing source tables and workbook layouts are unchanged.
+
+## Bulk Edit / Bulk Delete
+
+Open a transaction table with the **Bulk Actions** shortcut on Buyer Orders, Requirements, Stock In, or Stock Out, or select any source table under **More Tools**.
+
+Select one or more rows using checkboxes (including selections across pages), then choose **Bulk Edit** or **Bulk Delete**. Bulk Edit changes only one common editable field. Preview eligible and blocked rows, then confirm. Up to 150 rows may be processed per operation.
+
+Posted receipts, adjustments, confirmed dispatches, linked masters and in-use UOM conversions cannot be deleted. Critical posting/status fields and identifiers cannot be bulk edited. Draft/unlinked rows can be deleted with confirmation. All changes pass the transaction validation engine.
+
+For Google Sheets, the app checks for changes before writing and issues grouped API writes. Google Sheets still does not offer the secure, fully transactional authorization and locking needed for production multi-user posting. Browser-side roles are demonstration controls, not a trusted authentication boundary.
+
+### Update on Windows
+
+    git pull --ff-only origin main
+    npm test
+    py -m http.server 5173
