@@ -15,7 +15,7 @@ const root=path.dirname(fileURLToPath(import.meta.url));
 const dataDir=path.resolve(process.env.FLOWSTOCK_DATA_DIR||path.join(root,'lan-data'));
 const dbPath=path.join(dataDir,'database.json'),usersPath=path.join(dataDir,'users.json'),metaPath=path.join(dataDir,'metadata.json');
 const port=Number(process.env.FLOWSTOCK_PORT||5173),host=process.env.FLOWSTOCK_HOST||'0.0.0.0';
-const allowed=new Set(['index.html','styles.css','app.js','core.js','storage.js','admin.js','admin-ui.js','bulk.js','operations.js','forms-ui.js','workflow-ui.js','lan.js','favicon.ico']);
+const allowed=new Set(['index.html','styles.css','app.js','core.js','storage.js','admin.js','admin-ui.js','bulk.js','operations.js','forms-ui.js','workflow-ui.js','lan.js','manifest.webmanifest','flowstock-icon.svg','service-worker.js','favicon.ico']);
 const roleNames=new Set(['VIEWER','ENTRY','MANAGER','POSTER','ADMIN']);
 const masterTables=new Set(['BUYERS','SUPPLIERS','WAREHOUSES','ITEMS','UOM_MAP']);
 const sessions=new Map(),loginAttempts=new Map();let lease=null,state,users,meta;let queue=Promise.resolve();
@@ -196,7 +196,7 @@ async function handleApi(req,res,url){
  });
  throw error(404,'API endpoint not found');
 }
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.ico':'image/x-icon'};
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.ico':'image/x-icon','.webmanifest':'application/manifest+json','.svg':'image/svg+xml'};
 async function handle(req,res){
  try{
   originOK(req);
