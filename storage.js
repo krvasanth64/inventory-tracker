@@ -38,11 +38,12 @@ export async function createWorkspace(name,source='Local browser',data=null){
 export async function activateWorkspace(id){
  const all=await listWorkspaces(),found=all.find(x=>x.id===id);if(!found)throw Error('Workspace not found');
  if(found.kind==='google')return found;
- activeWorkspace=id;await storeSet('active-workspace',id);unlinkExcel();
+ activeWorkspace=id;await storeSet('active-workspace',id);await storeSet('last-local-workspace',id);unlinkExcel();
  snapshot=structuredClone(await storeGet(id==='default'?'database':'database:'+id)||emptyDb());
  return {...found,active:true};
 }
 export async function registerGoogleWorkspace({id,title}){
+ const current=await activeWorkspaceInfo();if(current?.kind==='local')await storeSet('last-local-workspace',current.id);
  const all=await listWorkspaces(),existing=all.find(x=>x.kind==='google'&&x.sheetId===id),now=stamp();
  if(existing){existing.name=title;existing.updatedAt=now;existing.source='Google Sheets'}else all.push({id:safeId(),name:title,source:'Google Sheets',kind:'google',sheetId:id,createdAt:now,updatedAt:now,count:0});
  const found=existing||all.at(-1);
@@ -84,6 +85,8 @@ export async function connectSheet(id){id=sheetIdFromUrl(id);if(!id)throw Error(
 const ranges=TABLES.map(t=>q(t)+'!A6:'+col(SCHEMAS[t].headers.length-1)+'2000');const data=await api(GOOGLE+'/'+encodeURIComponent(id)+'/values:batchGet?ranges='+ranges.map(encodeURIComponent).join('&ranges=')+'&valueRenderOption=UNFORMATTED_VALUE');
 const db=emptyDb();(data.valueRanges||[]).forEach((section,i)=>{const name=TABLES[i],s=SCHEMAS[name];for(let j=1;j<(section.values||[]).length;j++){const row=section.values[j],v=sheetInput(row,s);if(String(v[s.pk]||'').trim())db[name].push({...v,_row:j+6})}});activeSpreadsheet=id;await registerGoogleWorkspace({id,title:meta.properties?.title||id});await updateWorkspaceMeta({count:records(db)});return {db,title:meta.properties?.title||id,id}}
 export function disconnect(){activeSpreadsheet='';token=''}
+export async function restoreLocalWorkspace(){disconnect();const wanted=await storeGet('last-local-workspace')||'default';const all=await listWorkspaces();const found=all.find(x=>x.id===wanted&&x.kind==='local');await activateWorkspace(found?.id||'default');return loadLocal()}
+export async function lastLocalSnapshot(){const id=await storeGet('last-local-workspace')||'default';return await storeGet(id==='default'?'database':'database:'+id)||emptyDb()}
 async function nextRow(t,db){let biggest=6;for(const x of db[t])biggest=Math.max(biggest,Number(x._row)||6);return biggest+1}
 export async function putSheet(t,row,db,editing){if(!activeSpreadsheet)throw Error('Google Sheets not connected');const s=SCHEMAS[t];const rowIndex=editing?Number(row._row):await nextRow(t,db);if(!rowIndex||rowIndex<7)throw Error('Invalid database row');const values=s.fields.map(f=>({range:q(t)+'!'+col(f.col)+(rowIndex),values:[[row[f.key]===undefined?'':row[f.key]]]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data:values})});await updateWorkspaceMeta();return {...row,_row:rowIndex}}
 export async function clearSheet(t,row){if(!activeSpreadsheet)throw Error('No Google connection');if(!row._row)throw Error('Missing row number');const data=SCHEMAS[t].fields.map(f=>({range:q(t)+'!'+col(f.col)+row._row,values:[['']]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});await updateWorkspaceMeta()}
@@ -91,7 +94,7 @@ export async function createSheet(){if(!token)throw authError();const sheets=[..
 export async function uploadLocalSnapshotToGoogle(cloudDb){
  if(!activeSpreadsheet)throw Error('Connect a Google spreadsheet first');
  if(TABLES.some(t=>cloudDb[t]?.length))throw Error('Destination contains records. Upload is permitted only to a blank database.');
- const local=await storeGet('database')||emptyDb();
+ const local=await lastLocalSnapshot();
  const count=TABLES.reduce((n,t)=>n+(local[t]?.length||0),0);
  if(!count)throw Error('The local workspace contains no records to upload');
  const data=[];
