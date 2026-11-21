@@ -4,6 +4,7 @@ const IDB='flowstock-admin-v1';
 const ROLES={
   VIEWER:{label:'View Only',permissions:['read']},
   ENTRY:{label:'Data Entry',permissions:['read','transaction.write','transaction.bulk']},
+  POSTER:{label:'Stock Posting / Dispatch',permissions:['read','transaction.post']},
   MANAGER:{label:'Master Manager',permissions:['read','master.write','master.bulk']},
   ADMIN:{label:'Administrator',permissions:['*']}
 };
