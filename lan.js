@@ -33,6 +33,7 @@ export async function lanReplace(db,label='Database update'){
  const result=await api('replace',{method:'POST',data:{db,expectedRevision:revision,label}});
  revision=result.revision;if(meta)meta.updatedAt=result.updatedAt;return result.db;
 }
+export async function lanPoll(){if(!active)return {changed:false};const status=await api('status');lease=status.lease;if(meta){meta.updatedAt=status.updatedAt;meta.name=status.name}return {changed:status.revision!==revision,revision:status.revision,lease:{...lease}}}
 export async function refreshLease(){if(!active)return lease;const l=await api('lease');lease=l;return {...l}}
 export async function leaseAction(action){const l=await api('lease',{method:'POST',data:{action}});lease=l;if(l.mine)startHeartbeat();else stopHeartbeat();return {...l}}
 export function startHeartbeat(){
