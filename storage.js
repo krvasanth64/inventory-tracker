@@ -10,12 +10,66 @@ const fingerprint=f=>String(f.lastModified)+':'+String(f.size);
 function openStore(){return new Promise((resolve,reject)=>{const r=indexedDB.open(DBNAME,1);r.onupgradeneeded=()=>r.result.createObjectStore('state');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
 async function storeGet(key){const db=await openStore();return new Promise((resolve,reject)=>{const tx=db.transaction('state','readonly'),r=tx.objectStore('state').get(key);r.onsuccess=()=>{db.close();resolve(r.result)};r.onerror=()=>{db.close();reject(r.error)}})}
 async function storeSet(key,value){const db=await openStore();return new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put(value,key);tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>{db.close();reject(tx.error)}})}
-export async function loadLocal(){const val=await storeGet('database');snapshot=val||emptyDb();return structuredClone(snapshot)}
-export async function saveLocal(data){const clean=structuredClone(data);if(liveFileHandle){if(!window.XLSX)throw Error('Excel library unavailable for live XLSX save');const previous=await liveFileHandle.getFile();if(liveFileFingerprint&&fingerprint(previous)!==liveFileFingerprint)throw Error('The Excel file changed outside FlowStock. Reopen the file before saving to avoid overwriting another edit.');const w=sheetToWorkbook(clean);const bytes=XLSX.write(w,{bookType:'xlsx',type:'array'});const out=await liveFileHandle.createWritable();await out.write(bytes);await out.close();liveFileFingerprint=fingerprint(await liveFileHandle.getFile())}snapshot=clean;await storeSet('database',snapshot)}
+// Workspace catalog is browser-local; a Google URL is a connection pointer, not cached credentials.
+let activeWorkspace='default';
+const stamp=()=>new Date().toISOString();
+const records=db=>TABLES.reduce((n,t)=>n+(db[t]?.length||0),0);
+function safeId(){return 'db-'+crypto.randomUUID()}
+export async function listWorkspaces(){
+ let list=await storeGet('workspaces');
+ if(!list){const now=stamp(),legacy=await storeGet('database')||emptyDb();list=[{id:'default',name:'Local Workspace',source:'Local browser',kind:'local',createdAt:now,updatedAt:now,count:records(legacy)}];await storeSet('workspaces',list);await storeSet('active-workspace','default')}
+ activeWorkspace=await storeGet('active-workspace')||'default';
+ return list.map(x=>({...x,active:x.id===activeWorkspace}));
+}
+export async function activeWorkspaceInfo(){const all=await listWorkspaces();return all.find(x=>x.active)||all[0]}
+async function changeWorkspace(id,extra={}){
+ const all=await listWorkspaces(),p=all.find(x=>x.id===id);if(!p)throw Error('Workspace not found');
+ Object.assign(p,extra);await storeSet('workspaces',all.map(({active,...x})=>x));activeWorkspace=id;await storeSet('active-workspace',id);
+ return {...p,active:true}
+}
+export async function createWorkspace(name,source='Local browser',data=null){
+ name=String(name||'').trim();if(name.length<3)throw Error('Database name requires at least 3 characters');
+ const catalog=await listWorkspaces();if(catalog.some(x=>x.name.toLowerCase()===name.toLowerCase()))throw Error('Database name already exists');
+ const id=safeId(),now=stamp(),value=data||emptyDb();
+ catalog.push({id,name,source,kind:'local',createdAt:now,updatedAt:now,count:records(value)});
+ await storeSet('workspaces',catalog.map(({active,...x})=>x));await storeSet('database:'+id,structuredClone(value));
+ return catalog.at(-1)
+}
+export async function activateWorkspace(id){
+ const all=await listWorkspaces(),found=all.find(x=>x.id===id);if(!found)throw Error('Workspace not found');
+ if(found.kind==='google')return found;
+ activeWorkspace=id;await storeSet('active-workspace',id);unlinkExcel();
+ snapshot=structuredClone(await storeGet(id==='default'?'database':'database:'+id)||emptyDb());
+ return {...found,active:true};
+}
+export async function registerGoogleWorkspace({id,title}){
+ const all=await listWorkspaces(),existing=all.find(x=>x.kind==='google'&&x.sheetId===id),now=stamp();
+ if(existing){existing.name=title;existing.updatedAt=now;existing.source='Google Sheets'}else all.push({id:safeId(),name:title,source:'Google Sheets',kind:'google',sheetId:id,createdAt:now,updatedAt:now,count:0});
+ const found=existing||all.at(-1);
+ await storeSet('workspaces',all.map(({active,...x})=>x));
+ await changeWorkspace(found.id);return found;
+}
+export async function updateWorkspaceMeta(changes={}){
+ const all=await listWorkspaces(),x=all.find(v=>v.id===activeWorkspace);if(!x)return;
+ Object.assign(x,{updatedAt:stamp(),...changes});await storeSet('workspaces',all.map(({active,...v})=>v));
+}
+export async function renameWorkspace(id,name){
+ name=String(name||'').trim();if(name.length<3)throw Error('Enter database name');
+ const all=await listWorkspaces(),w=all.find(x=>x.id===id);if(!w)throw Error('Workspace not found');
+ if(all.some(x=>x.id!==id&&x.name.toLowerCase()===name.toLowerCase()))throw Error('Duplicate name');
+ w.name=name;w.updatedAt=stamp();await storeSet('workspaces',all.map(({active,...v})=>v));return w;
+}
+export async function deleteWorkspace(id){
+ const all=await listWorkspaces(),w=all.find(x=>x.id===id);if(!w||id==='default'||id===activeWorkspace)throw Error('Default/active database cannot be removed');
+ if(w.kind==='local'){await storeSet('database:'+id,null)}
+ await storeSet('workspaces',all.filter(x=>x.id!==id).map(({active,...v})=>v))
+}
+export async function loadLocal(){await listWorkspaces();const val=await storeGet(activeWorkspace==='default'?'database':'database:'+activeWorkspace);snapshot=val||emptyDb();return structuredClone(snapshot)}
+export async function saveLocal(data){const clean=structuredClone(data);if(liveFileHandle){if(!window.XLSX)throw Error('Excel library unavailable for live XLSX save');const previous=await liveFileHandle.getFile();if(liveFileFingerprint&&fingerprint(previous)!==liveFileFingerprint)throw Error('The Excel file changed outside FlowStock. Reopen the file before saving to avoid overwriting another edit.');const w=sheetToWorkbook(clean);const bytes=XLSX.write(w,{bookType:'xlsx',type:'array'});const out=await liveFileHandle.createWritable();await out.write(bytes);await out.close();liveFileFingerprint=fingerprint(await liveFileHandle.getFile())}snapshot=clean;await storeSet(activeWorkspace==='default'?'database':'database:'+activeWorkspace,snapshot);await updateWorkspaceMeta({count:records(clean),source:liveFileHandle?'Linked Excel ('+liveFileHandle.name+')':'Local browser'})}
 export function localSnapshot(){return structuredClone(snapshot)}
 export const linkedFileName=()=>liveFileHandle?.name||'';
 export function unlinkExcel(){liveFileHandle=null;liveFileFingerprint=null}
-export async function openLinkedExcel(){if(!window.showOpenFilePicker)throw Error('Live Excel linking requires Chrome/Edge in a secure context (HTTPS or localhost)');const [handle]=await window.showOpenFilePicker({types:[{description:'Excel workbook',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}],multiple:false});const f=await handle.getFile();if(!window.XLSX)throw Error('Excel library unavailable');const bytes=await f.arrayBuffer();const workbook=XLSX.read(bytes,{type:'array'});const unexpected=workbook.SheetNames.filter(n=>!TABLES.includes(n));if(unexpected.length)throw Error('This is a report-rich/legacy workbook. Use Import snapshot, then Save as linked Excel to preserve the original. Extra tabs: '+unexpected.slice(0,4).join(', '));const hasFormulas=TABLES.some(t=>Object.values(workbook.Sheets[t]||{}).some(cell=>cell&&typeof cell==='object'&&cell.f));if(hasFormulas)throw Error('This workbook contains formulas. Import snapshot and save as a new linked file; original remains unchanged.');const data=await importExcel(f);liveFileHandle=handle;liveFileFingerprint=fingerprint(f);snapshot=structuredClone(data);await storeSet('database',snapshot);return data}
+export async function openLinkedExcel(){if(!window.showOpenFilePicker)throw Error('Live Excel linking requires Chrome/Edge in a secure context (HTTPS or localhost)');const [handle]=await window.showOpenFilePicker({types:[{description:'Excel workbook',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}],multiple:false});const f=await handle.getFile();if(!window.XLSX)throw Error('Excel library unavailable');const bytes=await f.arrayBuffer();const workbook=XLSX.read(bytes,{type:'array'});const unexpected=workbook.SheetNames.filter(n=>!TABLES.includes(n));if(unexpected.length)throw Error('This is a report-rich/legacy workbook. Use Import snapshot, then Save as linked Excel to preserve the original. Extra tabs: '+unexpected.slice(0,4).join(', '));const hasFormulas=TABLES.some(t=>Object.values(workbook.Sheets[t]||{}).some(cell=>cell&&typeof cell==='object'&&cell.f));if(hasFormulas)throw Error('This workbook contains formulas. Import snapshot and save as a new linked file; original remains unchanged.');const data=await importExcel(f);liveFileHandle=handle;liveFileFingerprint=fingerprint(f);snapshot=structuredClone(data);await storeSet(activeWorkspace==='default'?'database':'database:'+activeWorkspace,snapshot);await updateWorkspaceMeta({source:'Linked Excel ('+handle.name+')',count:records(data)});return data}
 export async function saveAsLinkedExcel(data){if(!window.showSaveFilePicker)throw Error('File System Access requires Chrome/Edge on HTTPS or localhost');const handle=await window.showSaveFilePicker({suggestedName:'FlowStock_Live_Database.xlsx',types:[{description:'Excel workbook',accept:{'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':['.xlsx']}}]});liveFileHandle=handle;liveFileFingerprint=null;await saveLocal(data);return handle.name}
 export const connected=()=>!!activeSpreadsheet;
 export const googleId=()=>activeSpreadsheet;
@@ -28,11 +82,11 @@ function sheetInput(row,schema){const record={};schema.fields.forEach(f=>{const 
 export function sheetIdFromUrl(value){const m=String(value||'').match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);return m?m[1]:String(value||'').trim()}
 export async function connectSheet(id){id=sheetIdFromUrl(id);if(!id)throw Error('Enter a spreadsheet URL or ID');const meta=await api(GOOGLE+'/'+encodeURIComponent(id)+'?fields=spreadsheetId,properties(title),sheets(properties(title))');const tabs=new Set((meta.sheets||[]).map(s=>s.properties.title));const missing=TABLES.filter(t=>!tabs.has(t));if(missing.length)throw Error('Missing required tabs: '+missing.join(', ')+'. Create a fresh database, or use the V1 source workbook.');
 const ranges=TABLES.map(t=>q(t)+'!A6:'+col(SCHEMAS[t].headers.length-1)+'2000');const data=await api(GOOGLE+'/'+encodeURIComponent(id)+'/values:batchGet?ranges='+ranges.map(encodeURIComponent).join('&ranges=')+'&valueRenderOption=UNFORMATTED_VALUE');
-const db=emptyDb();(data.valueRanges||[]).forEach((section,i)=>{const name=TABLES[i],s=SCHEMAS[name];for(let j=1;j<(section.values||[]).length;j++){const row=section.values[j],v=sheetInput(row,s);if(String(v[s.pk]||'').trim())db[name].push({...v,_row:j+6})}});activeSpreadsheet=id;return {db,title:meta.properties?.title||id,id}}
+const db=emptyDb();(data.valueRanges||[]).forEach((section,i)=>{const name=TABLES[i],s=SCHEMAS[name];for(let j=1;j<(section.values||[]).length;j++){const row=section.values[j],v=sheetInput(row,s);if(String(v[s.pk]||'').trim())db[name].push({...v,_row:j+6})}});activeSpreadsheet=id;await registerGoogleWorkspace({id,title:meta.properties?.title||id});await updateWorkspaceMeta({count:records(db)});return {db,title:meta.properties?.title||id,id}}
 export function disconnect(){activeSpreadsheet='';token=''}
 async function nextRow(t,db){let biggest=6;for(const x of db[t])biggest=Math.max(biggest,Number(x._row)||6);return biggest+1}
-export async function putSheet(t,row,db,editing){if(!activeSpreadsheet)throw Error('Google Sheets not connected');const s=SCHEMAS[t];const rowIndex=editing?Number(row._row):await nextRow(t,db);if(!rowIndex||rowIndex<7)throw Error('Invalid database row');const values=s.fields.map(f=>({range:q(t)+'!'+col(f.col)+(rowIndex),values:[[row[f.key]===undefined?'':row[f.key]]]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data:values})});return {...row,_row:rowIndex}}
-export async function clearSheet(t,row){if(!activeSpreadsheet)throw Error('No Google connection');if(!row._row)throw Error('Missing row number');const data=SCHEMAS[t].fields.map(f=>({range:q(t)+'!'+col(f.col)+row._row,values:[['']]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})})}
+export async function putSheet(t,row,db,editing){if(!activeSpreadsheet)throw Error('Google Sheets not connected');const s=SCHEMAS[t];const rowIndex=editing?Number(row._row):await nextRow(t,db);if(!rowIndex||rowIndex<7)throw Error('Invalid database row');const values=s.fields.map(f=>({range:q(t)+'!'+col(f.col)+(rowIndex),values:[[row[f.key]===undefined?'':row[f.key]]]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'USER_ENTERED',data:values})});await updateWorkspaceMeta();return {...row,_row:rowIndex}}
+export async function clearSheet(t,row){if(!activeSpreadsheet)throw Error('No Google connection');if(!row._row)throw Error('Missing row number');const data=SCHEMAS[t].fields.map(f=>({range:q(t)+'!'+col(f.col)+row._row,values:[['']]}));await api(GOOGLE+'/'+encodeURIComponent(activeSpreadsheet)+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});await updateWorkspaceMeta()}
 export async function createSheet(){if(!token)throw authError();const sheets=[...TABLES,'AUDIT_LOG'].map(title=>({properties:{title,gridProperties:{rowCount:2000,columnCount:Math.max(18,(SCHEMAS[title]?.headers.length||6)+2),frozenRowCount:6,hideGridlines:true}}}));const created=await api(GOOGLE,{method:'POST',body:JSON.stringify({properties:{title:'FlowStock Trading Operations Database'},sheets})});const data=TABLES.map(t=>({range:q(t)+'!A1:'+col(SCHEMAS[t].headers.length-1)+'6',values:[[SCHEMAS[t].title+' | data records'],[],[],['INPUT TABLE - Use FlowStock web application'],[],SCHEMAS[t].headers]}));data.push({range:"'AUDIT_LOG'!A6:F6",values:[['Timestamp','Action','Table','Record ID','User','Details']]});await api(GOOGLE+'/'+created.spreadsheetId+'/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data})});const metas=await api(GOOGLE+'/'+created.spreadsheetId+'?fields=sheets(properties(sheetId,title))');const requests=metas.sheets.map(s=>({repeatCell:{range:{sheetId:s.properties.sheetId,startRowIndex:5,endRowIndex:6},cell:{userEnteredFormat:{backgroundColor:{red:.93,green:.95,blue:.98},textFormat:{bold:true},verticalAlignment:'MIDDLE'}},fields:'userEnteredFormat'}}));await api(GOOGLE+'/'+created.spreadsheetId+':batchUpdate',{method:'POST',body:JSON.stringify({requests})});return connectSheet(created.spreadsheetId)}
 export async function uploadLocalSnapshotToGoogle(cloudDb){
  if(!activeSpreadsheet)throw Error('Connect a Google spreadsheet first');
